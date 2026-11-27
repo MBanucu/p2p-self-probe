@@ -1,0 +1,53 @@
+# USB attached, no STA: the self-adb question, 2026-11-27.
+# Curated transcript. USB debugging is enabled and the cable is attached.
+
+# 1. The platform still refuses to enable Wireless debugging.
+$ dumpsys usb
+  connected=true
+  configured=true
+  host_connected=false
+  kernel_state=CONFIGURED
+  is_simulation_active=false
+
+$ settings put global adb_wifi_enabled 1
+$ settings get global adb_wifi_enabled
+0
+$ logcat -s AdbDebuggingManager
+11-27 19:37:04.019  AdbDebuggingManager: Not connected to any wireless network. Not enabling adbwifi.
+
+# 5555 stays up only because it was already pinned; USB plays no part.
+$ getprop service.adb.tcp.port
+5555
+$ ss -ltn | grep 5555
+LISTEN *:5555
+
+# 2. Termux sees no phone over USB.
+$ adb kill-server; adb devices
+List of devices attached
+emulator-5554   offline
+
+$ adb connect 127.0.0.1:5556
+failed to connect to '127.0.0.1:5556': Connection refused
+
+$ adb connect 127.0.0.1:5555
+connected to 127.0.0.1:5555
+$ adb devices
+127.0.0.1:5555   device
+emulator-5554    device
+
+# 3. The adbd Unix socket is not an app transport.
+$ ls /dev/socket/adbd
+ls: cannot access '/dev/socket/adbd': Permission denied
+# same result as uid 2000(shell) and uid 10514(u0_a514)
+
+# 4. The attach knobs are root-only / absent.
+$ cat /sys/class/udc/11201000.usb0/state
+Permission denied
+$ ls -l /sys/class/udc/11201000.usb0/soft_connect
+Permission denied
+$ cmd usb -h
+No shell command implementation.
+$ svc usb setFunctions adb
+# function selection only; it does not attach a host or open a TCP port
+$ lsmod | grep -E 'dummy_hcd|raw_gadget|gadgetfs|usbip|vhci'
+(no output)

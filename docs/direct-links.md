@@ -35,23 +35,26 @@ questions when comparing transports.
 
 **1. P2P GO + laptop station.** A P2P group is a normal WPA2 AP with an SSID
 `DIRECT-…`; the laptop joins it as an ordinary station, so no P2P stack is
-needed on Linux. The probe proves `createGroup()` works as GO with 0 clients
-and the STA link survives. Open: read the GO interface address/DHCP lease
-(Android 14+ Tethering may use a random range, not the historical
-`192.168.49.1`), verify mDNS on `p2p-p2p0-*`, and keep the group alive with a
-foreground service. `cmd wifip2p` is root-only; an app is required.
+needed on Linux. Measured blockers: the group cannot be created while the
+hotspot is up (`Failed to setup interface for P2P`; AP + P2P is not a supported
+combination), and with the hotspot off the GO ran on **6135 MHz (6 GHz)**, which
+the laptop's 8265 cannot see. Next: force a 5 GHz group with
+`WifiP2pConfig.Builder().setGroupOperatingFrequency(5180)`, then read the GO
+lease, verify mDNS on `p2p-p2p0-*`, and keep the group alive.
 
-**2. Hotspot + laptop.** The only phone-hosted link proven end to end for adb:
-`ap0` 10.31.180.89, laptop 10.31.180.149, `adb connect 10.31.180.89:5555` OK
-with `adb_wifi_enabled=0`. No root. The phone cannot join its own hotspot (one
-radio); the laptop is the client. `5555` does not survive a phone reboot, and
-the shell cannot set the property.
+**2. Hotspot + laptop.** The only phone-hosted link proven end to end for adb.
+The subnet is randomized per boot (`10.31.180.0/24`, then `10.231.103.0/24`), so
+read `ap0` and connect to that; `adb <ap0>:5555` works with
+`adb_wifi_enabled=0`. No root. The phone cannot join its own hotspot (one
+radio); the laptop is the client. `5555` does not survive a phone reboot, but a
+short temporary STA can pin it; see [`short-bootstrap.md`](short-bootstrap.md).
 
 **3. Keeper + real AP.** Wireless ADB Keeper writes `adb_wifi_enabled=1` with
 `WRITE_SECURE_SETTINGS`, pins `5555` via its trusted TLS key, and auto-joins a
-saved network. It is the only automatic toggle path, but it needs an AP. Its
-`isWifiConnected()` gate is enforced by `AdbDebuggingManager`; hotspot/P2P do
-not satisfy it.
+saved network. Its `isWifiConnected()` gate is enforced by
+`AdbDebuggingManager`; hotspot/P2P do not satisfy it. The AP is only needed
+until the pin: after `tcpip:5555` the STA can go away and the legacy listener
+remains.
 
 **4. USB tether.** `rndis,adb` already gives an IP link; `adb connect
 <phone-rndis-ip>:5555` worked, including IPv6 link-local, and mDNS resolved

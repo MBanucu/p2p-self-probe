@@ -1,0 +1,28 @@
+# P2P group owner with the hotspot off, 2026-11-27.
+# Curated transcript from the probe, dumpsys and the laptop scan. The group
+# passphrase is redacted.
+
+$ adb shell am start -n org.phonelink.p2pprobe/.MainActivity \
+      --es address d2:05:65:2e:5e:38 --ei hold 600000
+11-27 19:15:36.692  P2PSelfTest  createGroup: success
+11-27 19:15:38.196  P2PSelfTest  group owner: true
+11-27 19:15:38.196  P2PSelfTest  group ssid: DIRECT-KL-XPLORE 2
+11-27 19:15:38.197  P2PSelfTest  group passphrase: <redacted>
+11-27 19:15:38.197  P2PSelfTest  group interface: p2p-p2p0-0
+11-27 19:15:38.197  P2PSelfTest  group clients: 0
+11-27 19:15:38.199  P2PSelfTest  holding the group for 600000 ms
+
+$ ip -4 -o addr show p2p-p2p0-0
+48: p2p-p2p0-0  inet 192.168.49.1/24 brd 192.168.49.255 scope global p2p-p2p0-0
+$ dumpsys tethering | grep -A3 'Tether state'
+  p2p-p2p0-0 - LocalHotspotState - lastError = 0
+  Wi-Fi P2P tether interface: p2p-p2p0-0
+$ dumpsys wifip2p | grep 'CURRENTLY OPEN'
+netId=1, ... channelFrequency=6135, groupRole=GroupOwner, numConnectedClients=0
+
+# The group is on 6 GHz (6135 MHz).
+$ nmcli device wifi rescan
+$ nmcli -f SSID,BSSID,CHAN,FREQ,SIGNAL device wifi list | grep DIRECT
+(no output)
+# The laptop's Intel 8265 is 2.4/5 GHz only; it cannot see or join this group.
+# Next: force 5 GHz with WifiP2pConfig.Builder().setGroupOperatingFrequency(5180).

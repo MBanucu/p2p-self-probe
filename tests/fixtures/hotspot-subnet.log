@@ -1,0 +1,26 @@
+# Hotspot subnet randomization, 2026-11-27.
+# Curated transcript from two boots and one hotspot toggle.
+
+# Earlier boot: the subnet was 10.31.180.0/24.
+$ ip -4 -o addr show ap0
+47: ap0    inet 10.31.180.89/24 brd 10.31.180.255 scope global ap0
+$ ip -4 -o addr show wlp110s0
+2: wlp110s0 inet 10.31.180.149/24 brd 10.31.180.255 scope global dynamic
+
+# After a phone reboot: Tethering picked a different /24.
+$ ip -4 -o addr show ap0
+49: ap0    inet 10.231.103.217/24 brd 10.231.103.255 scope global ap0
+$ ip -4 -o addr show wlp110s0
+2: wlp110s0 inet 10.231.103.149/24 brd 10.231.103.255 scope global dynamic
+
+# Same boot, hotspot off/on: the subnet does not change.
+$ before=10.231.103.217/24  after=10.231.103.217/24  changed=no
+
+# 5555 survives the hotspot toggle.
+$ adb connect 10.231.103.217:5555
+connected to 10.231.103.217:5555
+$ adb -s 10.231.103.217:5555 shell 'getprop service.adb.tcp.port; settings get global adb_wifi_enabled'
+5555
+0
+
+# Read ap0 every boot; 10.31.180.89 and 192.168.49.1 are examples, not constants.

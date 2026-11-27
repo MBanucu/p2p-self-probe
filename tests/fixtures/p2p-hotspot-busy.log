@@ -1,0 +1,19 @@
+# P2P while the phone hotspot is up, 2026-11-27.
+# Curated transcript from the probe and logcat. Every call is BUSY because ap0
+# holds the only AP-capable interface.
+
+$ adb shell am start -n org.phonelink.p2pprobe/.MainActivity \
+      --es address d2:05:65:2e:5e:38 --ei hold 600000
+11-27 19:13:50.518  P2PSelfTest  discoverPeers: failed BUSY
+11-27 19:13:53.046  P2PSelfTest  connect(self): failed BUSY
+11-27 19:13:55.550  P2PSelfTest  cancelConnect: failed BUSY
+11-27 19:13:58.062  P2PSelfTest  createGroup: failed BUSY
+11-27 19:13:58.065  P2PSelfTest  RESULT createGroup: failed BUSY
+
+11-27 19:13:50.465  WifiP2pService  Failed to setup interface for P2P
+11-27 19:13:50.468  WifiP2pService  Interface resource is not available
+11-27 19:13:53.040  WifiP2pService  Failed to setup interface for P2P
+11-27 19:13:53.042  WifiP2pService  Interface resource is not available
+
+# The HAL offers 2 x STA or STA + AP, never AP + P2P.
+# Turn the hotspot off before creating a group.

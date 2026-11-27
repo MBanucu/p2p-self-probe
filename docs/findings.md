@@ -42,6 +42,23 @@ MAC (runs 2 and 3): the phone cannot discover or connect to itself, and it
 cannot join the group it just created. Self-P2P is not an Android permission
 problem that a different intent extra can solve.
 
+## Runs 4 and 5: the hotspot changes the answer
+
+- **Run 4 (hotspot off).** `createGroup()` succeeded as GO, SSID
+  `DIRECT-KL-XPLORE 2`, interface `p2p-p2p0-0`, `192.168.49.1/24`, tether state
+  `LocalHotspotState`, 0 clients. The group ran on **6135 MHz (6 GHz)**. The
+  laptop's Intel 8265 is 2.4/5 GHz only, so it could not see or join the group;
+  the `DIRECT-` SSID never appeared in the laptop scan.
+- **Run 5 (hotspot on).** Every P2P call returned `BUSY`; logcat says
+  `WifiP2pService: Failed to setup interface for P2P` and
+  `Interface resource is not available`. `ap0` holds the only AP-capable
+  interface, and the HAL does not offer AP + P2P.
+
+A P2P group and the hotspot cannot be up together. The 6 GHz default is a
+separate laptop-compatibility problem: forcing a 5 GHz group would need
+`WifiP2pConfig.Builder().setGroupOperatingFrequency(5180)` in the probe. That
+test is still open (issue #1).
+
 ## Why self-P2P is impossible
 
 Three independent layers agree; see `docs/direct-links.md` for the transport
@@ -66,10 +83,32 @@ The framework also masks the local P2P address (`02:00:00:00:00:00`) and hides
 
 ## What does coexist
 
-`createGroup()` and the laptop STA link coexist on this phone: the laptop kept
-its association across the group and the proxy stayed reachable. That makes the
-phone-as-GO topology worth testing as a link for the laptop, but it does not
-turn the phone into a Wi-Fi client.
+`createGroup()` and a **client** STA link coexist: in run 3 the phone was a
+client of the laptop AP on 5745 MHz and the group ran on the same channel. That
+is the STA + P2P combination. It is not AP + P2P: the hotspot (`ap0`) blocks the
+group (run 5). The phone-as-GO topology is still worth testing as a link for the
+laptop once the channel is forced, but it does not turn the phone into a Wi-Fi
+client.
+
+## The short bootstrap for 5555
+
+A temporary STA is enough to get legacy adb onto the phone. In the measured
+sequence the phone joined the laptop AP, Keeper set `adb_wifi_enabled=1` and
+pinned `5555` over its TLS key, and the AP was then turned off. The toggle
+reverted to `0` and the TLS listener died, but `service.adb.tcp.port=5555` and
+the listener survived. The phone hotspot then carried
+`adb connect <ap0>:5555` with no STA at all.
+
+Keeper's log proves the phone did the pin:
+
+```text
+WifiDebug: info pin.tls_ok asked adbd over TLS to listen on 5555
+WifiDebug: pin check: closed (asked the app's TLS client)
+WifiDebug: pin.state listening on 5555
+```
+
+The full sequence is in [`short-bootstrap.md`](short-bootstrap.md). A cold boot
+still loses `5555`, the toggle and the hotspot.
 
 ## What this means for automatic wireless debugging
 

@@ -5,13 +5,16 @@ Measured on 2026-11-27. This page records what USB can do for adb, and why the
 
 ## What works now: USB is already a TCP transport
 
-The phone enumerates as `rndis,adb`, with `rndis0` = `10.19.134.25/24` and the
-laptop's `enp55s0u2` on the same link. Because `adbd` binds the wildcard
-address, this works with no Wi-Fi at all:
+The phone enumerates as `rndis,adb`, with `rndis0` and the laptop's
+`enp55s0u2` on the same link. The subnet changes per boot/connection
+(`10.19.134.0/24` in one run, `172.28.111.0/24` after a reboot), so read
+`rndis0` rather than hardcoding it. Because `adbd` binds the wildcard address,
+this works with no Wi-Fi at all:
 
 ```sh
-adb connect 10.19.134.25:5555
-adb -s 10.19.134.25:5555 shell echo ok
+ip=$(adb shell ip -4 -o addr show rndis0 | awk '{print $4}' | cut -d/ -f1)
+adb connect "$ip:5555"
+adb -s "$ip:5555" shell echo ok
 # IPv6 link-local also works:
 adb connect '[fe80::9c9c:eff:fe9a:3d28%enp55s0u2]:5555'
 ```
@@ -46,6 +49,66 @@ This is a cable, so it is the recovery path, not the no-external-hardware goal.
 - `adb shell setprop service.adb.tcp.port 5555` and
   `setprop persist.adb.tcp.port ...` both fail as uid 2000. Root would fix it;
   root is out of scope by decision.
+
+## Faking USB attach: measured no
+
+The latest idea was to make Android think a USB host is attached, so adbd would
+be "on" and the phone could use adb locally through Termux. The measurements do
+not support it.
+
+### USB does not satisfy the Wireless debugging gate
+
+With the cable attached (`dumpsys usb`: `connected=true`, `configured=true`,
+`kernel_state=CONFIGURED`, `host_connected=false`) and **no** STA, forcing the
+toggle still reverts:
+
+```text
+$ adb shell settings put global adb_wifi_enabled 1
+$ adb shell settings get global adb_wifi_enabled
+0
+AdbDebuggingManager: Not connected to any wireless network. Not enabling adbwifi.
+```
+
+`5555` stays up because it was already pinned; USB plays no part in the gate.
+
+### Termux still has no device
+
+With USB attached and adbd running, Termux (uid 10514) sees no phone:
+
+```text
+$ adb kill-server; adb devices
+List of devices attached
+emulator-5554   offline
+
+$ adb connect 127.0.0.1:5556
+failed to connect to '127.0.0.1:5556': Connection refused
+
+$ adb connect 127.0.0.1:5555     # already pinned by Keeper
+connected to 127.0.0.1:5555
+
+$ ls /dev/socket/adbd
+ls: cannot access '/dev/socket/adbd': Permission denied
+```
+
+The USB transport belongs to adbd; Termux cannot open it. The only working
+self-connection was the TCP listener Keeper had already created. A closed port
+is refused. `/dev/socket/adbd` exists but is denied to both shell and Termux.
+
+### The attach itself is root-only
+
+- `/sys/class/udc/11201000.usb0/state` and `soft_connect` are permission-denied
+  to shell; configfs is mounted at `/config` but empty and root-only.
+- `cmd usb -h` returns `No shell command implementation`; `dumpsys usb` exposes
+  `is_simulation_active=false`, but there is no shell entry point to set it.
+- `svc usb` can only choose functions (`mtp`, `ptp`, `rndis`, `midi`, `ncm`),
+  not attach a host or start a TCP listener.
+- `dummy_hcd`, `raw-gadget`, `gadgetfs`, `usbip` and `vhci` are absent/root-only,
+  and one UDC/port cannot be host and device at the same time.
+
+Even a successful attach would leave adbd in USB mode with no TCP listener, and
+Termux still could not use the USB endpoint. The missing piece is always the
+first TCP listener: `tcpip:5555` over USB from a real host, or over the TLS key
+after a real STA. See [`short-bootstrap.md`](short-bootstrap.md).
 
 ## No-root conclusion
 
