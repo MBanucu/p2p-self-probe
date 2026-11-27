@@ -64,4 +64,20 @@ in
         ./app/build.sh
         install -Dm644 app/build/p2p-self-probe.apk $out/p2p-self-probe.apk
       '';
+
+  # ProbeLogic tests and the recorded run-3 fixture. No Android SDK needed, just
+  # a JDK; that keeps this check fast even when the APK cache is cold.
+  tests =
+    pkgs.runCommand "p2p-self-probe-tests"
+      {
+        nativeBuildInputs = [ androidPkgs.jdk17 ];
+      }
+      ''
+        export HOME=$TMPDIR
+        cp -r ${./.} app
+        chmod -R u+w app
+        cd app
+        ./tests/run-tests.sh
+        touch $out
+      '';
 }

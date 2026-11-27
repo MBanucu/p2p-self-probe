@@ -1,0 +1,33 @@
+18:55:01.587  device: Blackview XPLORE 2 / Android 15 (sdk 35)
+18:55:01.589  wifi enabled: true
+18:55:01.590  sta before: ssid= client=true
+18:55:01.590  address override from intent: d2:05:65:2e:5e:38
+18:55:01.602  broadcast: p2p state enabled
+18:55:01.603  this device: XPLORE 2 02:00:00:00:00:00 (masked by the framework)
+18:55:01.649  discoverPeers: started
+18:55:09.658  stopPeerDiscovery: success
+18:55:09.670  peers: 0 total, self listed: false
+18:55:12.161  connect(self): address d2:05:65:2e:5e:38 (override; framework reports 02:00:00:00:00:00)
+18:55:12.178  connect(self): failed ERROR
+18:55:14.683  cancelConnect: failed BUSY
+18:55:17.227  createGroup: success
+18:55:17.235  broadcast: p2p network [type: WIFI_P2P[], state: CONNECTING/CONNECTING, reason: (unspecified), extra: (none), failover: false, available: false, roaming: false]
+18:55:17.289  broadcast: this device XPLORE 2 02:00:00:00:00:00
+18:55:17.308  broadcast: p2p network [type: WIFI_P2P[], state: CONNECTED/CONNECTED, reason: (unspecified), extra: (none), failover: false, available: false, roaming: false]
+18:55:18.730  group owner: true
+18:55:18.731  group ssid: DIRECT-KL-XPLORE 2
+18:55:18.731  group interface: p2p-p2p0-2
+18:55:18.731  group owner device:  02:00:00:00:00:00
+18:55:18.732  group clients: 0
+18:55:18.733  sta during: ssid= client=true
+18:55:18.734  holding the group for 8000 ms
+18:55:26.742  connect(own group): address d2:05:65:2e:5e:38 (override; framework reports 02:00:00:00:00:00)
+18:55:26.747  connect(own group): failed ERROR
+18:55:26.764  removeGroup: success
+18:55:26.768  sta after: ssid= client=true
+18:55:26.769  RESULT self in peer list: false (0 peers)
+18:55:26.769  RESULT connect to self: failed ERROR
+18:55:26.769  RESULT createGroup: success
+18:55:26.769  RESULT connect to own group: failed ERROR
+18:55:26.770  RESULT sta client link kept through the group: true (client true/true/true; ssid //)
+18:55:26.770  VERDICT self P2P is not possible: the phone cannot discover or connect to itself

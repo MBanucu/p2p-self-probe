@@ -7,6 +7,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
@@ -30,12 +33,14 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Collections;
 import java.util.Date;
+import java.util.Enumeration;
 import java.util.Locale;
 
 /**
@@ -61,11 +66,16 @@ public final class MainActivity extends Activity {
     private TextView output;
 
     private String ownAddress = "";
+    private String overrideAddress = "";
+    private long holdMs = 0;
     private boolean selfInPeers;
     private int peerCount = -1;
     private String staBefore = "";
     private String staDuring = "";
     private String staAfter = "";
+    private boolean staActiveBefore;
+    private boolean staActiveDuring;
+    private boolean staActiveAfter;
     private String selfConnect = "not attempted";
     private String groupConnect = "not attempted";
     private String groupResult = "not attempted";
@@ -94,6 +104,12 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+
+        // Optional: the real P2P MAC from the host, when the framework masks the
+        // local one (it reports 02:00:00:00:00:00 on this ROM). `hold` keeps the
+        // group up for N ms so the host can inspect the p2p interfaces.
+        overrideAddress = value(getIntent().getStringExtra("address"));
+        holdMs = Math.max(0, getIntent().getIntExtra("hold", 0));
 
         output = new TextView(this);
         output.setGravity(Gravity.START);
@@ -159,14 +175,19 @@ public final class MainActivity extends Activity {
         WifiManager wifi = getSystemService(WifiManager.class);
         log("wifi enabled: " + (wifi != null && wifi.isWifiEnabled()));
         staBefore = ssid();
-        log("sta before: " + staBefore);
+        staActiveBefore = staActive();
+        log("sta before: ssid=" + staBefore + " client=" + staActiveBefore);
+        if (!overrideAddress.isEmpty()) {
+            log("address override from intent: " + overrideAddress);
+        }
 
         manager.requestDeviceInfo(channel, device -> {
             if (device == null) {
                 log("requestDeviceInfo: null");
             } else {
                 ownAddress = device.deviceAddress == null ? "" : device.deviceAddress;
-                log("this device: " + device.deviceName + " " + ownAddress);
+                log("this device: " + device.deviceName + " " + ownAddress
+                        + (ProbeLogic.isMasked(ownAddress) ? " (masked by the framework)" : ""));
             }
             discover();
         });
@@ -203,7 +224,7 @@ public final class MainActivity extends Activity {
         }
         for (WifiP2pDevice device : peers.getDeviceList()) {
             peerCount++;
-            boolean self = ownAddress != null && ownAddress.equalsIgnoreCase(device.deviceAddress);
+            boolean self = ProbeLogic.matchesSelf(ownAddress, overrideAddress, device.deviceAddress);
             if (self) {
                 selfInPeers = true;
             }
@@ -214,12 +235,14 @@ public final class MainActivity extends Activity {
 
     private void connectToSelf() {
         manager.requestDeviceInfo(channel, device -> {
-            if (device != null && device.deviceAddress != null && !device.deviceAddress.isEmpty()) {
+            if (device != null && device.deviceAddress != null && !device.deviceAddress.isEmpty()
+                    && !ProbeLogic.isMasked(device.deviceAddress)) {
                 ownAddress = device.deviceAddress;
             }
-            log("connect(self): address " + ownAddress);
+            String address = targetAddress();
+            log("connect(self): address " + address + describeTarget());
             WifiP2pConfig config = new WifiP2pConfig();
-            config.deviceAddress = ownAddress;
+            config.deviceAddress = address;
             config.wps.setup = WpsInfo.PBC;
             try {
                 manager.connect(channel, config, new WifiP2pManager.ActionListener() {
@@ -287,19 +310,26 @@ public final class MainActivity extends Activity {
                 log("group clients: " + group.getClientList().size());
             }
             staDuring = ssid();
-            log("sta during: " + staDuring);
+            staActiveDuring = staActive();
+            log("sta during: ssid=" + staDuring + " client=" + staActiveDuring);
             logInterfaces();
-            connectToGroupOwner();
+            if (holdMs > 0) {
+                log("holding the group for " + holdMs + " ms");
+                handler.postDelayed(this::connectToGroupOwner, holdMs);
+            } else {
+                connectToGroupOwner();
+            }
         });
     }
 
     private void connectToGroupOwner() {
         manager.requestGroupInfo(channel, group -> {
-            String address = ownAddress;
-            if (group != null && group.getOwner() != null && group.getOwner().deviceAddress != null) {
+            String address = targetAddress();
+            if (group != null && group.getOwner() != null && group.getOwner().deviceAddress != null
+                    && !ProbeLogic.isMasked(group.getOwner().deviceAddress)) {
                 address = group.getOwner().deviceAddress;
             }
-            log("connect(own group): address " + address);
+            log("connect(own group): address " + address + describeTarget());
             WifiP2pConfig config = new WifiP2pConfig();
             config.deviceAddress = address;
             config.wps.setup = WpsInfo.PBC;
@@ -348,19 +378,17 @@ public final class MainActivity extends Activity {
 
     private void finishProbe() {
         staAfter = ssid();
-        log("sta after: " + staAfter);
+        staActiveAfter = staActive();
+        log("sta after: ssid=" + staAfter + " client=" + staActiveAfter);
         log("RESULT self in peer list: " + selfInPeers + " (" + peerCount + " peers)");
         log("RESULT connect to self: " + selfConnect);
         log("RESULT createGroup: " + groupResult);
         log("RESULT connect to own group: " + groupConnect);
-        boolean staKept = !staBefore.isEmpty() && staBefore.equals(staDuring) && staBefore.equals(staAfter);
-        log("RESULT sta link kept through the group: " + staKept + " (" + staBefore + " / " + staDuring + " / " + staAfter + ")");
-        String verdict;
-        if (selfInPeers || selfConnect.equals("accepted") || groupConnect.equals("accepted")) {
-            verdict = "self P2P may be possible; inspect the log";
-        } else {
-            verdict = "self P2P is not possible: the phone cannot discover or connect to itself";
-        }
+        boolean staKept = ProbeLogic.staKept(staActiveBefore, staActiveDuring, staActiveAfter);
+        log("RESULT sta client link kept through the group: " + staKept
+                + " (client " + staActiveBefore + "/" + staActiveDuring + "/" + staActiveAfter
+                + "; ssid " + staBefore + "/" + staDuring + "/" + staAfter + ")");
+        String verdict = ProbeLogic.verdict(selfInPeers, selfConnect, groupConnect);
         log("VERDICT " + verdict);
         writeTranscript();
     }
@@ -384,19 +412,80 @@ public final class MainActivity extends Activity {
     }
 
     private void logInterfaces() {
+        // getNetworkInterfaces() returns null on this ROM, so ask for the names
+        // the P2P and STA roles use instead of enumerating.
+        for (String name : new String[] {"wlan0", "p2p0", "p2p1", "p2p-p2p0-0", "ap0"}) {
+            logInterface(name);
+        }
+    }
+
+    private void logInterface(String name) {
         try {
-            for (NetworkInterface iface : Collections.list(NetworkInterface.getNetworkInterfaces())) {
-                String name = iface.getName();
-                if (!name.startsWith("p2p") && !"wlan0".equals(name) && !"ap0".equals(name)) {
-                    continue;
+            NetworkInterface iface = NetworkInterface.getByName(name);
+            if (iface == null) {
+                return;
+            }
+            String mac = "-";
+            try {
+                byte[] bytes = iface.getHardwareAddress();
+                if (bytes != null) {
+                    StringBuilder text = new StringBuilder();
+                    for (byte b : bytes) {
+                        if (text.length() > 0) {
+                            text.append(':');
+                        }
+                        text.append(String.format(Locale.US, "%02x", b));
+                    }
+                    mac = text.toString();
                 }
-                for (InetAddress address : Collections.list(iface.getInetAddresses())) {
-                    log("iface " + name + " " + address.getHostAddress());
+            } catch (Exception exc) {
+                mac = "unreadable";
+            }
+            log("iface " + name + " mac=" + mac + " up=" + iface.isUp());
+            for (InetAddress address : Collections.list(iface.getInetAddresses())) {
+                log("iface " + name + " " + address.getHostAddress());
+            }
+        } catch (Exception exc) {
+            log("iface " + name + " failed: " + exc);
+        }
+    }
+
+    /**
+     * True when wlan0 holds a routable IPv4 address, which only happens while
+     * the phone is associated with an AP. WifiInfo is useless here: Android
+     * redacts SSID and network id without a location permission, which is why
+     * this reads the interface instead. A P2P group uses p2p-* interfaces, so
+     * a wlan0 address really does mean the STA link survived.
+     */
+    private boolean staActive() {
+        // ConnectivityManager works in an app; this ROM hides NetworkInterface
+        // from untrusted apps (getNetworkInterfaces() returns null and
+        // getByName() finds nothing), so it is the only reliable signal here.
+        try {
+            ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+            if (cm != null) {
+                Network active = cm.getActiveNetwork();
+                NetworkCapabilities caps = active == null ? null : cm.getNetworkCapabilities(active);
+                if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                    return true;
                 }
             }
         } catch (Exception exc) {
-            log("iface scan failed: " + exc);
+            log("sta check failed: " + exc);
         }
+        return false;
+    }
+
+    private String targetAddress() {
+        return overrideAddress.isEmpty() ? ownAddress : overrideAddress;
+    }
+
+    private String describeTarget() {
+        return overrideAddress.isEmpty() ? "" : " (override; framework reports " + ownAddress + ")";
+    }
+
+    private static String value(String text) {
+        return text == null ? "" : text.trim();
     }
 
     private WifiP2pManager.ActionListener action(String label) {

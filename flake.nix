@@ -35,6 +35,9 @@
           # instead of waiting for a manual build.
           apk = app.apk;
 
+          # ProbeLogic + the run-3 fixture, with no Android SDK needed.
+          tests = app.tests;
+
           format = pkgs.runCommand "p2p-self-probe-format-check" { nativeBuildInputs = [ pkgs.nixfmt ]; } ''
             nixfmt --check ${./flake.nix} ${./default.nix}
             touch $out
