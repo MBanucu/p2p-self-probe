@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A pull request from a fork gets a read-only token, and every check here is
+# hermetic: no secrets, no phone.
+permissions:
+  contents: read
+
+# A new push to the same branch makes the previous run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flake-check:
+    name: nix flake check
+    runs-on: ubuntu-latest
+    # A cold cache pays for the Android SDK; give it room but not forever.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: cachix/install-nix-action@v32
+
+      # `checks` compiles the APK and checks the nix formatting, so this one
+      # command is the whole gate.
+      - name: Check the flake
+        run: nix flake check --print-build-logs
