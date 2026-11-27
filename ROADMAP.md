@@ -43,7 +43,8 @@ hardware".
 | 8 | Shell cannot set `service.adb.tcp.port` or `persist.adb.tcp.port`. | `Failed to set property` as uid 2000 | **Proven** |
 | 9 | `5555` survives hotspot/P2P transitions and STA loss, but not a reboot. | `tests/fixtures/short-bootstrap.log` | **Proven** |
 | 10 | Short bootstrap works: a temporary STA lets Keeper pin `5555`; the STA can then go away. | `docs/short-bootstrap.md` | **Proven** |
-| 11 | Cold boot loses `5555`, the toggle and the hotspot; the bootstrap must be repeated. | `tests/fixtures/cold-boot.log` | **Open blocker** |
+| 11 | Cold boot loses `5555`, the toggle and the hotspot. Nothing recreates `5555` without a trusted STA; once one appears, Keeper re-arms the toggle and re-pins `5555` in ~17 s with no host command. | `tests/fixtures/cold-boot.log`, `tests/fixtures/cold-boot-5555-timeline.log` | **Narrowed (needs a STA)** |
+| 15 | Keeper is the writer of `adb_wifi_enabled`: forcing it to `0` while a STA is up is undone in under 1 s. | `tests/fixtures/cold-boot-5555-timeline.log` | **Proven** |
 | 12 | P2P GO cannot coexist with the hotspot; with the hotspot off the default GO is 6 GHz, invisible to the 8265. | runs 4/5; `tests/fixtures/p2p-*.log` | **Blocked** |
 | 13 | Termux can maintain an existing listener but cannot create the first one; USB is not a substitute. | `docs/termux.md`, `docs/usb-ideas.md` | **Ruled out** |
 | 14 | Hotspot and rndis subnets are randomized per boot; read `ap0`/`rndis0` each time. | `tests/fixtures/hotspot-subnet.log` | **Proven** |
@@ -56,9 +57,10 @@ hardware".
 [#13](https://github.com/MBanucu/p2p-self-probe/issues/13)
 
 Wireless ADB Keeper already switches the toggle on when a real STA link exists,
-pins `5555` via its trusted TLS key, and survives reboots. This is the only
-"automatic" path proven today. It needs an AP, so it does not meet the
-no-external-hardware goal; it is the control and the fallback.
+pins `5555` via its trusted TLS key, and re-arms itself after a reboot: measured
+~17 s from STA association to `5555` listening, with no host adb command. It
+needs an AP, so it does not meet the no-external-hardware goal; it is the
+control and the fallback.
 
 ### B. P2P GO + laptop as station — blocked by AP+P2P and the default 6 GHz
 

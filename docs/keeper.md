@@ -31,12 +31,29 @@ phone-hosted link.
    periodic job. When Wi-Fi returns, the setting is flipped back on; when the
    user or the system turns it off, the observer re-applies it.
 
+   Measured after a cold boot (`tests/fixtures/cold-boot-5555-timeline.log`):
+   with no Wi-Fi, nothing is written for four minutes; when a trusted STA
+   appears the toggle is written within ~1 s of association; forcing it off
+   while the STA is up is undone in under a second.
+
+   ```text
+   11-27 20:03:09  $ settings put global adb_wifi_enabled 0
+   11-27 20:03:10  $ settings get global adb_wifi_enabled  -> 1
+   11-27 20:03:10.344  WifiDebug: enabled wireless debugging
+   11-27 20:03:10.359  WifiDebug: ensure.changed setting turned off: Enabled wireless debugging
+   ```
+
+   Removing the STA flips it back off and Keeper stops fighting: `Network
+   disconnected. Disabling adbwifi.` then `ensure: no Wi-Fi, skipping`.
+
 4. **Fixed port 5555.** Android gives adbd a new random TLS port on every
    restart. `PinnedPort` probes `127.0.0.1:5555` every 10 s; when it is closed,
    it sends the adb service request `tcpip:5555` over the app's own trusted TLS
    key (`TlsPinTransport`), or asks Termux to run `pin-adb-port.sh`. Once
    pinned, both the TLS port and `5555` listen; the fixed port survives until
-   adbd restarts or the phone reboots.
+   adbd restarts or the phone reboots. On a cold boot the whole chain takes about
+   17 s from association: toggle at `19:59:47`, `tcpip:5555` at `20:00:02`,
+   `5555` listening at `20:00:04` (next 10 s poll).
 
 5. **Wi-Fi control.** `WifiSuggestion` registers one `WifiNetworkSuggestion` per
    saved profile, so Android rejoins the AP silently after a reboot.

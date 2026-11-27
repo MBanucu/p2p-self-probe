@@ -69,6 +69,40 @@ connected to 192.168.77.232:34019
 
 The full curated transcript is `tests/fixtures/short-bootstrap.log`.
 
+## After a reboot: measured timings
+
+A second run on the same phone (19:54–20:04) measured when the port comes back.
+Host and phone clocks were verified identical, and no host adb command was sent.
+
+| Time | Event |
+|---|---|
+| 19:54:30 | `adb reboot` |
+| 19:55:24 | `sys.boot_completed=1`; toggle `0`, port empty, no `ap0`, Keeper pid 2742 |
+| 19:56:24 | Keeper: `pin.no_result ... exit=1 err=-1` — no Wi-Fi, nothing to pin |
+| 19:59:37 | laptop AP up; the phone auto-joins its trusted `PhoneLink` |
+| 19:59:46.7 | associated (BSSID `f4:d1:08:3e:7f:0b`, 5745 MHz); Keeper writes `adb_wifi_enabled=1` |
+| 19:59:47.5 | toggle reads `1`; adbd starts its TLS server and advertises `_adb-tls-connect._tcp` |
+| 20:00:02.2 | Keeper's paired TLS client connects (`adbd_wifi_secure_connect: connected host-41`) and sends `tcpip:5555` |
+| 20:00:02.4 | adbd restarts: `TlsServer running on port 40733`, legacy `5555` listening |
+| 20:00:04 | `service.adb.tcp.port=5555`, one LISTEN socket |
+| 20:00:12.0 | Keeper: `pin.state listening on 5555` |
+
+Two conclusions:
+
+- **Without a STA, `5555` never appears.** Four minutes of two-second samples,
+  plus the earlier cold boot, showed no port, no toggle and no TLS server.
+- **With a trusted STA the phone rebuilds it in about 17 s on its own.** `adb
+  usb` is not needed; the pin itself restarts adbd.
+
+Keeper is the writer of the toggle, not just a reader: with the STA up,
+`settings put global adb_wifi_enabled 0` is undone in under a second
+(`WifiDebug: enabled wireless debugging`). Removing the STA behaves as before:
+`AdbDebuggingManager: Network disconnected. Disabling adbwifi.`, the toggle goes
+to `0` after ~5 s, Keeper logs `ensure: no Wi-Fi, skipping` (remembered SSID
+`PhoneLink`), and `5555` keeps listening.
+
+Curated transcript: `tests/fixtures/cold-boot-5555-timeline.log`.
+
 ## The hotspot address is not stable
 
 The hotspot subnet changed between boots. On the earlier boot it was
@@ -85,10 +119,13 @@ Do not hardcode `10.31.180.89` or `192.168.49.1`.
 
 ## Boundaries
 
-- **One boot.** After a reboot `service.adb.tcp.port` is empty, `5555` is gone,
-  `adb_wifi_enabled` is `0`, and the hotspot is off. Measure and recovery are in
-  `docs/hotspot.md` and `tests/fixtures/cold-boot.log`; the bootstrap has to be
-  repeated after each boot.
+- **One boot for `5555`.** After a reboot `service.adb.tcp.port` is empty,
+  `5555` is gone, `adb_wifi_enabled` is `0`, and the hotspot is off. Nothing
+  recreates the port until a **trusted Wi-Fi client network** appears; then
+  Keeper re-arms the toggle and re-pins the port in about 17 s, with no host
+  command (see above). Cold-boot automation therefore reduces to "get a STA
+  up", not "run adb". Details: `docs/hotspot.md`,
+  `tests/fixtures/cold-boot.log`.
 - **The bootstrap needs a real STA once.** USB does not satisfy the
   `AdbDebuggingManager` gate. With USB attached and no STA,
   `settings put global adb_wifi_enabled 1` still reads back `0`:
@@ -110,14 +147,14 @@ Keep USB adb attached and keep a rollback AP profile ready. The laptop AP is
 only needed for step 1.
 
 ```sh
-# 1. Temporary STA. The phone joins it, Keeper enables the toggle.
+# 1. Temporary STA. The phone auto-joins the saved network; Keeper enables the
+#    toggle. The explicit connect is only needed if it does not auto-join.
 nmcli connection up phonelink                 # laptop: 5 GHz AP, 192.168.77.1
-adb shell cmd wifi connect-network "PhoneLink" wpa2 "$PSK"
-adb shell settings get global adb_wifi_enabled  # expect 1
+adb shell settings get global adb_wifi_enabled  # expect 1 within ~10 s
+# adb shell cmd wifi connect-network "PhoneLink" wpa2 "$PSK"   # only if needed
 
-# 2. Force adbd to restart; Keeper re-pins 5555 over TLS.
-adb usb
-adb shell 'for i in $(seq 1 15); do ss -ltn | grep -q ":5555 " && break; sleep 1; done'
+# 2. Wait for the phone to pin 5555 over its own TLS key (no host command).
+adb shell 'for i in $(seq 1 40); do [ "$(getprop service.adb.tcp.port)" = 5555 ] && break; sleep 1; done'
 adb shell getprop service.adb.tcp.port          # expect 5555
 
 # 3. Remove the STA and turn on the phone hotspot.
@@ -131,7 +168,8 @@ adb connect "$ip:5555"
 adb -s "$ip:5555" shell 'getprop service.adb.tcp.port; settings get global adb_wifi_enabled'
 ```
 
-The pin survives hotspot off/on and STA loss. It does not survive a reboot.
+The pin survives hotspot off/on and STA loss. It does not survive a reboot, but
+it is rebuilt about 17 s after the phone rejoins a trusted Wi-Fi network.
 
 ## What this changes
 

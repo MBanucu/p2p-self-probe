@@ -32,7 +32,9 @@ The app is small on purpose; the evidence lives in `docs/` and
 - **Short bootstrap works:** a temporary STA lets Keeper set
   `adb_wifi_enabled=1` and pin `5555` over TLS; the STA can then go away. The
   toggle reverts to `0`, but `5555` keeps listening and the hotspot carries
-  `adb connect <ap0>:5555`. It does not survive a reboot.
+  `adb connect <ap0>:5555`. A reboot clears it, but the phone rebuilds it in
+  ~17 s on its own once a trusted Wi-Fi network is back (measured; no host adb
+  command).
 - USB is not a shortcut: with the cable attached and no STA the toggle still
   reverts, Termux sees no adb device, and faking the USB attach is root-only.
 
@@ -59,12 +61,12 @@ The external AP is needed only until Keeper pins the port. Full detail and
 evidence: [`docs/short-bootstrap.md`](docs/short-bootstrap.md).
 
 ```sh
-# 1. Temporary STA; Keeper sets adb_wifi_enabled=1.
+# 1. Temporary STA; the phone auto-joins and Keeper sets adb_wifi_enabled=1.
 nmcli connection up phonelink            # laptop 5 GHz AP, 192.168.77.1
-adb shell cmd wifi connect-network "PhoneLink" wpa2 "$PSK"
+# adb shell cmd wifi connect-network "PhoneLink" wpa2 "$PSK"   # only if needed
 
-# 2. Restart adbd; Keeper re-pins 5555 over its TLS key.
-adb usb
+# 2. Wait for the phone to pin 5555 over its own TLS key (no host command).
+adb shell 'for i in $(seq 1 40); do [ "$(getprop service.adb.tcp.port)" = 5555 ] && break; sleep 1; done'
 adb shell getprop service.adb.tcp.port   # 5555
 
 # 3. Remove the STA and turn on the phone hotspot.
@@ -77,8 +79,9 @@ adb connect "$ip:5555"
 ```
 
 `adb_wifi_enabled` goes back to `0` when the STA disappears, but the legacy
-listener stays. A reboot clears `5555` and turns the hotspot off, so repeat the
-bootstrap after a cold boot.
+listener stays. A reboot clears `5555` and turns the hotspot off; bringing the
+STA back lets Keeper rebuild `5555` by itself in about 17 s, then the hotspot
+can take over again.
 
 ## What it does, in order
 
