@@ -157,6 +157,10 @@ The hotspot link and the short bootstrap are proven. A cold boot still loses
 everything: `service.adb.tcp.port` is empty, no `5555` listener exists,
 `adb_wifi_enabled` is `0`, the hotspot is off, and Termux is not running.
 Without a temporary STA, USB host or root, there is no way to restore `5555` or
-turn on Wireless debugging from the hotspot alone. See `ROADMAP.md`,
+turn on Wireless debugging from the hotspot alone. Keeper is not idle after the
+reboot, it is gated: four minutes of samples produced nothing, and when a
+trusted STA appeared the toggle and `5555` were back in ~17 s with no host
+command (`tests/fixtures/cold-boot-5555-timeline.log`). Getting a STA up without
+an AP remains the open problem. See `ROADMAP.md`,
 `docs/short-bootstrap.md` and issues #3, #12, #14, #15. Do not call a
 one-pin-per-boot workflow automatic.

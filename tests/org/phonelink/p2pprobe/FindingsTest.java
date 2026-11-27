@@ -44,6 +44,15 @@ public final class FindingsTest {
         contains(dir, "hotspot-subnet.log", "10.231.103.217/24");
         contains(dir, "hotspot-subnet.log", "changed=no");
 
+        contains(dir, "cold-boot-5555-timeline.log", "STA association -> 5555 listening        ~17 s");
+        contains(dir, "cold-boot-5555-timeline.log", "boot -> 5555 without any STA             never");
+        contains(dir, "cold-boot-5555-timeline.log", "adbd_wifi_secure_connect: connected host-41");
+        contains(dir, "cold-boot-5555-timeline.log", "TlsServer running on port 40733");
+        contains(dir, "cold-boot-5555-timeline.log", "info pin.state listening on 5555");
+        contains(dir, "cold-boot-5555-timeline.log", "ensure.changed setting turned off: Enabled wireless debugging");
+        contains(dir, "cold-boot-5555-timeline.log", "Network disconnected. Disabling adbwifi.");
+        contains(dir, "cold-boot-5555-timeline.log", "remembered SSID: PhoneLink");
+
         System.out.println("ok: " + checks + " findings");
     }
 

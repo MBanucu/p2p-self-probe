@@ -108,7 +108,10 @@ WifiDebug: pin.state listening on 5555
 ```
 
 The full sequence is in [`short-bootstrap.md`](short-bootstrap.md). A cold boot
-still loses `5555`, the toggle and the hotspot.
+still loses `5555`, the toggle and the hotspot. Nothing recreates the port until
+a trusted Wi-Fi client network appears; then Keeper re-arms the toggle and
+re-pins `5555` in about 17 s with no host adb command
+(`tests/fixtures/cold-boot-5555-timeline.log`).
 
 ## What this means for automatic wireless debugging
 

@@ -1,0 +1,92 @@
+# Reboot with a trusted STA: how and when 5555 comes back, 2026-11-27.
+# Curated transcript. Host and phone clocks were verified identical
+# (date +%s == 1795805631 on both), so host and logcat timestamps line up.
+# The temporary AP is the laptop's 5 GHz "PhoneLink" (5745 MHz, 192.168.77.1);
+# USB adb is the lifeline. Passphrases and pairing PINs are omitted.
+
+# 0. Before the reboot: the previous pin is alive, hotspot on.
+$ getprop service.adb.tcp.port            -> 5555
+$ settings get global adb_wifi_enabled    -> 0
+$ ip -4 -o addr show ap0                  -> 10.231.103.217/24
+19:54:30  $ adb reboot
+
+# 1. Boot. Everything volatile is gone; Keeper is up, Wi-Fi is not connected.
+19:54:39 .. 19:55:12   adb: no device
+19:55:14  adb shell: uptime 19s, settings service not up yet
+19:55:24  sys.boot_completed=1 (uptime 28s)
+$ getprop service.adb.tcp.port            -> (empty)
+$ settings get global adb_wifi_enabled    -> 0
+$ /proc/net/tcp, tcp6 | port 15B3 (5555)  -> 0 listeners
+$ ip -4 -o addr show ap0                  -> (none)
+$ pidof io.github.mbanucu.wirelessadbkeeper -> 2742
+
+# No Wi-Fi: Keeper tries and fails; nothing creates 5555.
+11-27 19:56:24.716  2742  2742 W WifiDebug: diag: 2026-11-27T18:56:24Z 88s warn pin.no_result script=pin-adb-port.sh result=none exit=1 err=-1
+
+# 2. A trusted STA appears 4 minutes after boot. 5555 comes back by itself,
+#    with no host adb command at all.
+19:59:37  $ nmcli connection up phonelink        # laptop AP 192.168.77.1
+11-27 19:59:44.158  SupplicantStaIfaceHalAidlBase: connectToNetwork "PhoneLink"WPA_PSK
+11-27 19:59:46.553  wpa_supplicant: wlan0: Trying to associate with SSID 'PhoneLink'
+11-27 19:59:46.732  wpa_supplicant: CTRL-EVENT-CONNECTED - Connection to f4:d1:08:3e:7f:0b completed
+# The network is trusted (BSSID f4:d1:08:3e:7f:0b, 5745 MHz). Keeper writes
+# adb_wifi_enabled=1 on its network callback; the platform starts the TLS
+# server and adbd advertises _adb-tls-connect._tcp.
+11-27 19:59:47.487  2742  2742 I WifiDebug: ensure: already enabled
+11-27 19:59:47.495  2742  2742 I WifiDebug: diag: 2026-11-27T18:59:47Z 291s info ensure.noop wifi available: Already enabled
+$ getprop service.adb.tcp.port            -> (empty, one sample later)
+$ settings get global adb_wifi_enabled    -> 1
+$ ip -4 -o addr show wlan0                -> 192.168.77.232/24
+
+# 3. 15 s later Keeper's paired TLS client connects and asks adbd for 5555.
+11-27 20:00:02.233  3307  3307 I adbd    : New TLS connection [fd=41]
+11-27 20:00:02.289  3307 10570 I adbd    : Matched auth_key=... pairing
+11-27 20:00:02.290  3307 10570 I adbd    : adbd_wifi_secure_connect: connected host-41
+11-27 20:00:02.302  2742  3140 I WifiDebug: diag: 2026-11-27T19:00:02Z 306s info pin.tls_ok asked adbd over TLS to listen on 5555
+11-27 20:00:02.308  2742  3140 I WifiDebug: pin check: closed (asked the app's TLS client); script no RESULT line (exit 1)
+11-27 20:00:02.343  1596  2464 W AdbDebuggingManager: Read failed with count -1
+11-27 20:00:02.344  1596  2464 E AdbDebuggingManager: Caught an exception opening the socket: java.io.IOException: Connection refused
+# adbd restarts in TCP mode with a new TLS port and the legacy port.
+11-27 20:00:02.360 10574 10576 I adbd    : adbwifi started on port 40733
+11-27 20:00:02.362 10574 10576 I adbd    : TlsServer running on port 40733
+11-27 20:00:02.362 10574 10576 I adbd    : adb wifi started on port 40733
+11-27 20:00:02.363 10574 10579 I adbd    : adbd mDNS service _adb-tls-connect._tcp registered: 1
+20:00:04  $ getprop service.adb.tcp.port            -> 5555
+20:00:04  $ /proc/net/tcp, tcp6 | port 15B3 (5555)  -> 1 listener
+11-27 20:00:12.014  2742  3140 I WifiDebug: diag: 2026-11-27T19:00:12Z 316s info pin.state listening on 5555
+11-27 20:00:12.015  2742  3140 I WifiDebug: pin check: listening on 5555
+
+# 4. Keeper is the writer of adb_wifi_enabled, not just a reader: force it off
+#    while the STA is up and Keeper puts it back in under a second.
+20:03:09  $ adb shell settings put global adb_wifi_enabled 0
+20:03:10  $ settings get global adb_wifi_enabled    -> 1
+11-27 20:03:10.344  2742  2742 I WifiDebug: enabled wireless debugging
+11-27 20:03:10.359  2742  2742 I WifiDebug: diag: 2026-11-27T19:03:10Z 494s info ensure.changed setting turned off: Enabled wireless debugging
+11-27 20:03:10.359  2742  2742 I WifiDebug: monitor ensure (setting turned off): Enabled wireless debugging
+
+# 5. Remove the STA: the toggle reverts, 5555 stays. Keeper does not fight it
+#    without a network; it remembers the SSID.
+20:03:29  $ nmcli connection down phonelink
+11-27 20:03:34.692  1596  1596 I AdbDebuggingManager: Network disconnected. Disabling adbwifi.
+11-27 20:03:35.206  2742  2742 I WifiDebug: ensure: no Wi-Fi, skipping
+11-27 20:03:35.215  2742  2742 I WifiDebug: diag: 2026-11-27T19:03:35Z 519s info ensure.no_wifi setting turned off: Wi-Fi not connected; remembered SSID: PhoneLink
+$ settings get global adb_wifi_enabled    -> 0   (20:03:35 .. 20:03:57)
+$ getprop service.adb.tcp.port            -> 5555
+$ /proc/net/tcp, tcp6 | port 15B3 (5555)  -> 1 listener
+
+# 6. Bring the STA back: the whole cycle repeats with no host command.
+20:04:05  $ nmcli connection up phonelink
+11-27 20:04:37.869  2742  2742 I WifiDebug: enabled wireless debugging
+20:04:38  $ settings get global adb_wifi_enabled    -> 1
+20:04:38  $ adb connect 192.168.77.232:5555
+connected to 192.168.77.232:5555
+$ adb -s 192.168.77.232:5555 shell 'echo WIRELESS_OK; getprop service.adb.tcp.port'
+WIRELESS_OK
+5555
+
+# Summary, measured:
+#   boot -> boot_completed                  ~54 s (this boot; 19 s on the earlier one)
+#   boot -> 5555 without any STA             never
+#   STA association -> 5555 listening        ~17 s
+#   STA removal -> toggle 0                  ~5 s
+#   toggle forced off -> Keeper restores it  <1 s
