@@ -115,6 +115,36 @@ re-pins `5555` in about 17 s with no host adb command
 
 ## What this means for automatic wireless debugging
 
+### Which links satisfy the toggle
+
+`AdbDebuggingManager.getCurrentWifiApInfo()` reads
+`WifiManager.getConnectionInfo()`, i.e. the **client-mode** `WifiInfo`, and needs
+`getNetworkId() != -1` plus a non-empty BSSID. Only an association to an external
+AP fills that in:
+
+| Link the phone has | client `WifiInfo` | Toggle |
+|---|---|---|
+| STA to a real AP (laptop AP, router) | Net ID `1`, BSSID set | passes (measured) |
+| own hotspot `ap0` | Net ID `-1` | reverted (measured) |
+| P2P group owner `p2p-p2p0-0` | Net ID `-1` | reverted (measured 2026-11-27) |
+| USB tether `rndis0` | Net ID `-1` | reverted (measured) |
+| Bluetooth PAN, NAN, VPN | not a STA association | cannot enable it |
+
+Measured with only a GO up (`192.168.49.1/24`, 6055 MHz) and no STA:
+
+```text
+$ settings put global adb_wifi_enabled 1
+$ settings get global adb_wifi_enabled -> 0
+AdbDebuggingManager: Not connected to any wireless network. Not enabling adbwifi.
+WifiDebug: enabled wireless debugging            <- Keeper writes it
+AdbDebuggingManager: Not connected ... adbwifi.  <- platform reverts 2 ms later
+```
+
+So the toggle is STA-only by construction, not by policy. The **transport** is
+different: `5555` binds the wildcard address and works over the hotspot, a GO,
+rndis or any other IP path once it exists. The open problem stays the first
+listener.
+
 - The Android Wireless debugging **toggle** needs a real `TRANSPORT_WIFI`
   client network. A hotspot or P2P GO does not provide one; the platform logs
   `Not connected to any wireless network. Not enabling adbwifi.` and reverts
