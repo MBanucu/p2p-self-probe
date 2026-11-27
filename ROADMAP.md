@@ -46,7 +46,8 @@ hardware".
 | 11 | Cold boot loses `5555`, the toggle and the hotspot. Nothing recreates `5555` without a trusted STA; once one appears, Keeper re-arms the toggle and re-pins `5555` in ~17 s with no host command. | `tests/fixtures/cold-boot.log`, `tests/fixtures/cold-boot-5555-timeline.log` | **Narrowed (needs a STA)** |
 | 15 | Keeper is the writer of `adb_wifi_enabled`: forcing it to `0` while a STA is up is undone in under 1 s. | `tests/fixtures/cold-boot-5555-timeline.log` | **Proven** |
 | 16 | A P2P GO does not satisfy the toggle: the write is refused and Keeper's own write is reverted 2 ms later. STA + GO coexistence is brief and unstable. | `tests/fixtures/p2p-toggle-gate.log` | **Proven** |
-| 12 | P2P GO cannot coexist with the hotspot; with the hotspot off the default GO is 6 GHz, invisible to the 8265. | runs 4/5; `tests/fixtures/p2p-*.log` | **Blocked** |
+| 17 | Forced 5 GHz GO + laptop station works end to end: `DIRECT-KL-5G` on 5180 MHz, DHCP `192.168.49.149`, `adb connect 192.168.49.1:5555` with the toggle off, no AP and no cable. | `tests/fixtures/p2p-go-5ghz.log` | **Proven** |
+| 12 | P2P GO cannot coexist with the hotspot; the default GO is 6 GHz, but a forced 5 GHz group is visible to the 8265. | runs 4/5; `tests/fixtures/p2p-*.log` | **Partly solved** |
 | 13 | Termux can maintain an existing listener but cannot create the first one; USB is not a substitute. | `docs/termux.md`, `docs/usb-ideas.md` | **Ruled out** |
 | 14 | Hotspot and rndis subnets are randomized per boot; read `ap0`/`rndis0` each time. | `tests/fixtures/hotspot-subnet.log` | **Proven** |
 
@@ -63,18 +64,18 @@ pins `5555` via its trusted TLS key, and re-arms itself after a reboot: measured
 needs an AP, so it does not meet the no-external-hardware goal; it is the
 control and the fallback.
 
-### B. P2P GO + laptop as station — blocked by AP+P2P and the default 6 GHz
+### B. P2P GO + laptop as station — works on 5 GHz
 
 **Issue:** [#1](https://github.com/MBanucu/p2p-self-probe/issues/1)
 
 Phone owns a P2P group; laptop joins `DIRECT-…` as a normal WPA2 station; adb
-runs over `5555` on the GO interface. Measured blockers: with the hotspot up
-the group cannot be created (`Failed to setup interface for P2P`); with the
-hotspot off the GO ran on **6135 MHz (6 GHz)** and the laptop's 8265 could not
-see it. Next, if pursued: force a 5 GHz group with
-`WifiP2pConfig.Builder().setGroupOperatingFrequency(5180)`, then join from the
-laptop and test the lease, mDNS, screen-off lifetime and laptop reboot. It is
-not needed for the `5555` bootstrap.
+runs over `5555` on the GO interface. With the hotspot up the group cannot be
+created (`Failed to setup interface for P2P`), and the default GO is 6 GHz,
+invisible to the 8265. A config with `setGroupOperatingFrequency(5180)` plus an
+SSID and passphrase fixes that: the GO came up on **5180 MHz**, the laptop
+joined and got `192.168.49.149`, and `adb connect 192.168.49.1:5555` worked with
+the toggle off. Remaining work: keep the group alive with a foreground service,
+and check screen-off and laptop-reboot behavior.
 
 ### C. Hotspot + short bootstrap — proven, one temporary STA per boot
 
@@ -176,8 +177,8 @@ Keep the P2P evidence reproducible: real-MAC override, hold, STA detection,
    listener and hotspot, and automate or explicitly time the bootstrap.
 2. **#14/#15**: use Termux only as a watchdog after a pin; do not expect it to
    create the first listener.
-3. **#1**: force a 5 GHz P2P group and retry the laptop-as-station path; it is
-   optional now that the hotspot + bootstrap works.
+3. **#1**: done — a forced 5 GHz GO is reachable from the laptop and adb runs
+   over it; the follow-up is a keep-alive service for the group.
 4. **#11**: close the "fake Wi-Fi" question with the USB evidence; document the
    toggle limit in Keeper.
 5. **#2**: run the reversible hotspot self-connect falsification (low priority).

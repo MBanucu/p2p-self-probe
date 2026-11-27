@@ -1,0 +1,55 @@
+# P2P group owner forced to 5 GHz, laptop as a legacy station, 2026-11-27.
+# Curated transcript. Passphrases are redacted. USB adb was the lifeline; the
+# phone hotspot and every STA were off, so the group was the only link.
+
+# 1. Create the group with a config, not the no-arg overload. The builder
+#    requires an SSID and passphrase when no peer is given; the frequency is a
+#    hint to the HAL ("peer address must be set if network name and passphrase
+#    are not set" is what a bare frequency throws).
+$ adb shell am start -n org.phonelink.p2pprobe/.MainActivity \
+      --ei freq 5180 --es ssid DIRECT-KL-5G --es psk <redacted> --ei hold 240000
+11-27 20:37:03.345  P2PSelfTest: createGroup on 5180 MHz, ssid DIRECT-KL-5G
+11-27 20:37:03.360  P2PSelfTest: createGroup: success
+11-27 20:37:04.864  P2PSelfTest: group owner: true
+11-27 20:37:04.865  P2PSelfTest: group ssid: DIRECT-KL-5G
+11-27 20:37:04.865  P2PSelfTest: group passphrase: <redacted>
+11-27 20:37:04.865  P2PSelfTest: group interface: p2p-p2p0-0
+11-27 20:37:04.868  P2PSelfTest: holding the group for 240000 ms
+
+$ dumpsys wifip2p | grep "CURRENTLY OPEN"
+netId=-1, startTime=11-27 20:37:03.399, channelFrequency=5180, groupRole=GroupOwner, numConnectedClients=0, ... CURRENTLY OPEN EVENT
+$ ip -4 -o addr show p2p-p2p0-0
+44: p2p-p2p0-0    inet 192.168.49.1/24 brd 192.168.49.255 scope global p2p-p2p0-0
+
+# 2. The laptop's 8265 sees the group on channel 36 and joins it as a plain
+#    WPA2 station. The phone's DHCP hands out 192.168.49.149.
+$ nmcli -f SSID,BSSID,CHAN,FREQ,SIGNAL device wifi list | grep DIRECT
+DIRECT-KL-5G         92:45:FE:DB:CF:F8  36    5180 MHz  100
+$ nmcli device wifi connect DIRECT-KL-5G password <redacted> ifname wlp110s0
+Device 'wlp110s0' successfully activated
+$ ip -4 -o addr show wlp110s0
+2: wlp110s0    inet 192.168.49.149/24 brd 192.168.49.255 scope global dynamic noprefixroute wlp110s0
+$ dumpsys wifip2p | grep "CURRENTLY OPEN"        # on the phone
+netId=-1, ... channelFrequency=5180, groupRole=GroupOwner, numConnectedClients=1, ... CURRENTLY OPEN EVENT
+
+# 3. adb over the phone-hosted group: no AP, no hotspot, no cable, toggle off.
+$ adb connect 192.168.49.1:5555
+connected to 192.168.49.1:5555
+$ adb -s 192.168.49.1:5555 shell 'id -u; getprop service.adb.tcp.port; settings get global adb_wifi_enabled'
+2000
+5555
+0
+$ ping -c2 -W2 192.168.49.1
+2 packets transmitted, 2 received, 0% packet loss, time 1002ms
+rtt min/avg/max/mdev = 1.806/2.478/3.150/0.672 ms
+
+# 4. Still up 30 s later.
+$ adb -s 192.168.49.1:5555 shell 'echo STILL_OK_30S'
+STILL_OK_30S
+
+# Limits measured in the same run:
+# - the group lives on the probe's 240 s timer, not a foreground service, so
+#   the lease dies when the hold ends;
+# - the toggle still needs a STA (tests/fixtures/p2p-toggle-gate.log);
+# - with the group up, a later STA association did not survive (the link broke
+#   within ~3 min), so keep the two apart.
