@@ -67,17 +67,48 @@ so the toggle cannot be enabled in that topology. The legacy `5555` listener is
 different: it is reachable over the hotspot if it already exists, with the
 toggle off.
 
+## Measured pin, and what happens when the STA goes away
+
+With a real STA present, Keeper set the toggle and `PinnedPort` recreated `5555`
+after `adb usb` restarted adbd:
+
+```text
+WifiDebug: info pin.tls_ok asked adbd over TLS to listen on 5555
+WifiDebug: pin check: closed (asked the app's TLS client)
+WifiDebug: pin.state listening on 5555
+```
+
+The phone did this over its own TLS key; the host only restarted adbd. After the
+AP was turned off, the platform reverted `adb_wifi_enabled` to `0` and the TLS
+listener stopped, but `service.adb.tcp.port` stayed `5555` and the legacy
+listener stayed up:
+
+```text
+11-27 19:20:02.219 adbd ADB wifi device disconnected
+$ settings get global adb_wifi_enabled -> 0
+$ getprop service.adb.tcp.port       -> 5555
+$ ss -ltn | grep 5555                -> LISTEN *:5555
+```
+
+That is the useful split: the toggle is per-STA, the pinned legacy port is
+per-adbd-life, and the latter survives losing the STA. A cold boot resets both.
+See [`short-bootstrap.md`](short-bootstrap.md).
+
 ## What this means for this project
 
 - Keeper is the right **setting/pin/keepalive** layer. Reuse it rather than
   reimplementing `WRITE_SECURE_SETTINGS`, mDNS, `tcpip:5555` and the boot
   receivers.
 - Keeper is not a **link**. It needs a real STA link (the laptop AP or a router)
-  for the toggle, or an already-pinned `5555` for the transport.
-- A phone-hosted hotspot/P2P link therefore needs a Keeper Lite variant:
+  for the toggle, or an already-pinned `5555` for the transport. The STA can go
+  away after the pin; it is only needed to enable the toggle and let Keeper send
+  `tcpip:5555`.
+- A phone-hosted hotspot/P2P link therefore needs a Keeper Lite variant only for
+  the cold boot:
   - keep the existing `Ensurer`/`MonitorService` behavior when a real AP exists;
   - do not pretend the toggle can be enabled on a hotspot/P2P GO;
-  - keep and expose legacy `5555` when it is already pinned;
+  - keep and expose legacy `5555` when it is already pinned, including after the
+    STA disappears;
   - document the cold-boot gap (issue #12).
 - Termux can run the client and watchdog once a listener exists, but cannot
   create the listener on a cold boot. See `docs/termux.md`.

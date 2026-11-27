@@ -11,6 +11,8 @@ mkdir -p "$out"
 
 javac --release 11 -encoding UTF-8 -d "$out" \
     "$root/src/org/phonelink/p2pprobe/ProbeLogic.java" \
-    "$here/org/phonelink/p2pprobe/ProbeLogicTest.java"
+    "$here/org/phonelink/p2pprobe/ProbeLogicTest.java" \
+    "$here/org/phonelink/p2pprobe/FindingsTest.java"
 
 java -cp "$out" org.phonelink.p2pprobe.ProbeLogicTest "$here/fixtures/run3.log"
+java -cp "$out" org.phonelink.p2pprobe.FindingsTest "$here/fixtures"

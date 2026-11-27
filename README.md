@@ -6,9 +6,11 @@ Wi-Fi Direct (P2P) to give itself a link:
 1. **Can the phone discover or connect to itself over P2P?**
 2. **Does a P2P group-owner role coexist with a Wi-Fi client link?**
 
-The answer so far: self-P2P is impossible, a P2P GO coexists with the STA link,
-and the Android Wireless debugging toggle still requires a real Wi-Fi client
-network. The app is small on purpose; the evidence lives in `docs/` and
+The answer so far: self-P2P is impossible, a P2P GO coexists with a **client**
+STA link but not with the hotspot, and the Android Wireless debugging toggle
+still requires a real Wi-Fi client network. A short-lived STA can bootstrap
+legacy `5555`, after which the phone-hosted hotspot carries adb without any AP.
+The app is small on purpose; the evidence lives in `docs/` and
 `tests/fixtures/`.
 
 ## Findings
@@ -21,26 +23,62 @@ network. The app is small on purpose; the evidence lives in `docs/` and
   `ERROR`; `createGroup()` succeeds as GO with 0 clients.
 - `STA + AP`/`STA + P2P` concurrency is real for an **external** peer; the
   phone cannot be a client of its own AP/GO (one radio, half-duplex).
-- The P2P GO + laptop-as-station topology is the next link to test: the laptop
-  joins the `DIRECT-…` SSID and adb runs over fixed port `5555`.
-- The hotspot path works for adb (`10.31.180.89:5555` measured), but
-  `adb_wifi_enabled` is reverted by `AdbDebuggingManager` without a client
-  network, and `5555` does not survive a reboot without root/USB/temporary STA.
+- The hotspot and a P2P group are mutually exclusive on this HAL
+  (`Failed to setup interface for P2P`). With the hotspot off the GO ran on
+  **6 GHz (6135 MHz)**, invisible to the laptop's 2.4/5 GHz 8265; forcing a
+  5 GHz group is the next P2P test.
+- The hotspot path works for adb, but the subnet is randomized per boot
+  (`10.31.180.89`, then `10.231.103.217`). Read `ap0`; do not hardcode it.
+- **Short bootstrap works:** a temporary STA lets Keeper set
+  `adb_wifi_enabled=1` and pin `5555` over TLS; the STA can then go away. The
+  toggle reverts to `0`, but `5555` keeps listening and the hotspot carries
+  `adb connect <ap0>:5555`. It does not survive a reboot.
+- USB is not a shortcut: with the cable attached and no STA the toggle still
+  reverts, Termux sees no adb device, and faking the USB attach is root-only.
 
-Read more: [`docs/findings.md`](docs/findings.md),
+Read more: [`docs/short-bootstrap.md`](docs/short-bootstrap.md),
+[`docs/findings.md`](docs/findings.md),
 [`docs/hotspot.md`](docs/hotspot.md),
 [`docs/direct-links.md`](docs/direct-links.md),
 [`docs/keeper.md`](docs/keeper.md),
-[`docs/termux.md`](docs/termux.md), and [`ROADMAP.md`](ROADMAP.md).
+[`docs/termux.md`](docs/termux.md),
+[`docs/usb-ideas.md`](docs/usb-ideas.md), and [`ROADMAP.md`](ROADMAP.md).
 
 ## Why
 
 The laptop-local AP keeps the phone in **client mode**, which is what the
 Wireless debugging toggle needs. A phone-hosted link (hotspot or P2P) is
 attractive because it would survive a laptop reboot and need no external AP.
-The open question is whether the phone can provide both ends of that link or at
-least run a P2P group without losing its client link. This app is the cheap
-empirical check.
+The question was whether the phone can provide both ends of that link. It
+cannot, but it does not need to: a temporary STA bootstraps `5555`, and the
+phone hotspot then carries adb with no AP.
+
+## Bootstrap 5555 (one temporary STA)
+
+The external AP is needed only until Keeper pins the port. Full detail and
+evidence: [`docs/short-bootstrap.md`](docs/short-bootstrap.md).
+
+```sh
+# 1. Temporary STA; Keeper sets adb_wifi_enabled=1.
+nmcli connection up phonelink            # laptop 5 GHz AP, 192.168.77.1
+adb shell cmd wifi connect-network "PhoneLink" wpa2 "$PSK"
+
+# 2. Restart adbd; Keeper re-pins 5555 over its TLS key.
+adb usb
+adb shell getprop service.adb.tcp.port   # 5555
+
+# 3. Remove the STA and turn on the phone hotspot.
+nmcli connection down phonelink
+# toggle Personal hotspot on
+
+# 4. Read the randomized address; adb over the phone-hosted link.
+ip=$(adb shell ip -4 -o addr show ap0 | awk '{print $4}' | cut -d/ -f1)
+adb connect "$ip:5555"
+```
+
+`adb_wifi_enabled` goes back to `0` when the STA disappears, but the legacy
+listener stays. A reboot clears `5555` and turns the hotspot off, so repeat the
+bootstrap after a cold boot.
 
 ## What it does, in order
 
