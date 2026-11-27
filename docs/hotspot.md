@@ -54,9 +54,9 @@ WifiP2pService: Interface resource is not available
 `ap0` holds the only AP-capable interface, and the HAL does not offer AP + P2P
 (see the table below). The hotspot must be off before a P2P group can be
 created. With it off, `createGroup()` succeeded, but the GO ran on **6135 MHz
-(6 GHz)** — invisible to the laptop's 2.4/5 GHz Intel 8265. The fix, if P2P is
-pursued, is to force a 5 GHz group channel in the probe; see
-`docs/findings.md` and issue #1.
+(6 GHz)** — invisible to the laptop's 2.4/5 GHz Intel 8265. Forcing a 5 GHz
+group fixes the laptop side: the GO came up on 5180 MHz and the laptop joined
+and ran adb; see `tests/fixtures/p2p-go-5ghz.log` and `docs/findings.md`.
 
 ## Why the phone cannot join its own hotspot
 

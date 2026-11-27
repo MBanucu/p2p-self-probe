@@ -68,6 +68,9 @@ public final class MainActivity extends Activity {
     private String ownAddress = "";
     private String overrideAddress = "";
     private long holdMs = 0;
+    private int groupFreq = 0;
+    private String groupSsid = "";
+    private String groupPsk = "";
     private boolean selfInPeers;
     private int peerCount = -1;
     private String staBefore = "";
@@ -107,9 +110,13 @@ public final class MainActivity extends Activity {
 
         // Optional: the real P2P MAC from the host, when the framework masks the
         // local one (it reports 02:00:00:00:00:00 on this ROM). `hold` keeps the
-        // group up for N ms so the host can inspect the p2p interfaces.
+        // group up for N ms so the host can inspect the p2p interfaces. `freq`
+        // asks the group owner for a channel in MHz (5180 for the 8265's 5 GHz).
         overrideAddress = value(getIntent().getStringExtra("address"));
         holdMs = Math.max(0, getIntent().getIntExtra("hold", 0));
+        groupFreq = Math.max(0, getIntent().getIntExtra("freq", 0));
+        groupSsid = value(getIntent().getStringExtra("ssid"));
+        groupPsk = value(getIntent().getStringExtra("psk"));
 
         output = new TextView(this);
         output.setGravity(Gravity.START);
@@ -278,21 +285,42 @@ public final class MainActivity extends Activity {
 
     private void createGroup() {
         manager.cancelConnect(channel, action("cancelConnect"));
-        handler.postDelayed(() -> manager.createGroup(channel, new WifiP2pManager.ActionListener() {
-            @Override
-            public void onSuccess() {
-                groupResult = "success";
-                log("createGroup: success");
-                handler.postDelayed(MainActivity.this::describeGroup, 1500);
-            }
+        handler.postDelayed(() -> {
+            WifiP2pManager.ActionListener listener = new WifiP2pManager.ActionListener() {
+                @Override
+                public void onSuccess() {
+                    groupResult = "success";
+                    log("createGroup: success");
+                    handler.postDelayed(MainActivity.this::describeGroup, 1500);
+                }
 
-            @Override
-            public void onFailure(int reason) {
-                groupResult = "failed " + reasonName(reason);
-                log("createGroup: failed " + reasonName(reason));
-                finishProbe();
+                @Override
+                public void onFailure(int reason) {
+                    groupResult = "failed " + reasonName(reason);
+                    log("createGroup: failed " + reasonName(reason));
+                    finishProbe();
+                }
+            };
+            if (groupFreq > 0) {
+                // The frequency is a hint to the HAL, not a guarantee. The
+                // builder refuses a bare frequency: createGroup needs the group
+                // SSID and passphrase when no peer is given.
+                if (groupSsid.isEmpty() || groupPsk.isEmpty()) {
+                    log("createGroup on " + groupFreq + " MHz: need ssid and psk extras");
+                    finishProbe();
+                    return;
+                }
+                log("createGroup on " + groupFreq + " MHz, ssid " + groupSsid);
+                WifiP2pConfig config = new WifiP2pConfig.Builder()
+                        .setNetworkName(groupSsid)
+                        .setPassphrase(groupPsk)
+                        .setGroupOperatingFrequency(groupFreq)
+                        .build();
+                manager.createGroup(channel, config, listener);
+            } else {
+                manager.createGroup(channel, listener);
             }
-        }), SETTLE_MS);
+        }, SETTLE_MS);
     }
 
     private void describeGroup() {

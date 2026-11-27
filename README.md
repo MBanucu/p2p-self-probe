@@ -24,9 +24,11 @@ The app is small on purpose; the evidence lives in `docs/` and
 - `STA + AP`/`STA + P2P` concurrency is real for an **external** peer; the
   phone cannot be a client of its own AP/GO (one radio, half-duplex).
 - The hotspot and a P2P group are mutually exclusive on this HAL
-  (`Failed to setup interface for P2P`). With the hotspot off the GO ran on
-  **6 GHz (6135 MHz)**, invisible to the laptop's 2.4/5 GHz 8265; forcing a
-  5 GHz group is the next P2P test.
+  (`Failed to setup interface for P2P`). The default GO ran on **6 GHz**, which
+  the laptop's 8265 cannot see, but forcing 5 GHz works: the GO came up on
+  **5180 MHz**, the laptop joined `DIRECT-…` as a plain station, got
+  `192.168.49.149` and `adb connect 192.168.49.1:5555` ran with the toggle off.
+  That is a phone-hosted adb link with no AP, no hotspot and no cable.
 - The hotspot path works for adb, but the subnet is randomized per boot
   (`10.31.180.89`, then `10.231.103.217`). Read `ap0`; do not hardcode it.
 - **Short bootstrap works:** a temporary STA lets Keeper set
@@ -92,7 +94,10 @@ can take over again.
 4. `connect()` to the local P2P address (or the host-supplied real MAC) → logs
    success or the failure reason.
 5. `cancelConnect`, then `createGroup()` → logs owner, SSID, passphrase, group
-   interface, clients, and interface addresses.
+   interface, clients, and interface addresses. Extras:
+   `--es address <real p2p MAC>`, `--ei hold <ms>`, and for a forced-frequency
+   group `--ei freq 5180 --es ssid DIRECT-... --es psk <8-63 chars>` (the
+   builder rejects a bare frequency).
 6. Optionally holds the group (`--ei hold <ms>`) so a host can inspect it.
 7. `connect()` to the group owner's address (the phone itself) → logs the
    result.

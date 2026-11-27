@@ -26,7 +26,7 @@ toggle on. Separate the two questions when comparing transports.
 
 | # | Transport | Verdict | Phone role | No root? | No external AP? | Survives laptop reboot? |
 |---|---|---|---|---|---|---|
-| 1 | P2P, phone = GO, laptop = legacy station | **test next** | GO | yes | yes | yes: group lives on the phone |
+| 1 | P2P, phone = GO, laptop = legacy station | **works on 5 GHz; adb 5180 MHz proven** | GO | yes | yes | yes, with a keep-alive service |
 | 2 | Phone hotspot, laptop = client | **works; adb 5555 proven** | AP | yes | yes | yes, but `5555` needs a pin per phone boot |
 | 3 | Keeper + real AP (laptop/router) | **works; toggle + 5555 automatic** | STA | yes | no | yes |
 | 4 | USB tether (RNDIS) + `5555` | works, cable-bound | n/a | yes | n/a | no (cable) |
@@ -39,14 +39,19 @@ toggle on. Separate the two questions when comparing transports.
 
 ## Notes
 
-**1. P2P GO + laptop station.** A P2P group is a normal WPA2 AP with an SSID
-`DIRECT-…`; the laptop joins it as an ordinary station, so no P2P stack is
-needed on Linux. Measured blockers: the group cannot be created while the
-hotspot is up (`Failed to setup interface for P2P`; AP + P2P is not a supported
-combination), and with the hotspot off the GO ran on **6135 MHz (6 GHz)**, which
-the laptop's 8265 cannot see. Next: force a 5 GHz group with
-`WifiP2pConfig.Builder().setGroupOperatingFrequency(5180)`, then read the GO
-lease, verify mDNS on `p2p-p2p0-*`, and keep the group alive.
+**1. P2P GO + laptop station — works on 5 GHz.** A P2P group is a normal WPA2 AP
+with an SSID `DIRECT-…`; the laptop joins it as an ordinary station, so no P2P
+stack is needed on Linux. Measured 2026-11-27: the default GO came up on 6 GHz
+(6135/6055 MHz, invisible to the 8265), but a config with
+`setGroupOperatingFrequency(5180)` plus an SSID and passphrase put the GO on
+**5180 MHz**; the laptop joined `DIRECT-KL-5G` on channel 36, the phone's DHCP
+gave `192.168.49.149`, and `adb connect 192.168.49.1:5555` worked with the
+toggle off, no AP, no hotspot and no cable. The frequency is a HAL hint, not a
+guarantee; the builder refuses a bare frequency (`peer address must be set if
+network name and passphrase are not set`). Still open: the group lives on the
+probe's timer, so it needs a foreground service to stay up, and the hotspot
+cannot be up at the same time (`Failed to setup interface for P2P`). Fixture:
+`tests/fixtures/p2p-go-5ghz.log`.
 
 **2. Hotspot + laptop.** The only phone-hosted link proven end to end for adb.
 The subnet is randomized per boot (`10.31.180.0/24`, then `10.231.103.0/24`), so

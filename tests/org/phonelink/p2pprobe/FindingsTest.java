@@ -58,6 +58,13 @@ public final class FindingsTest {
         contains(dir, "p2p-toggle-gate.log", "Not connected to any wireless network. Not enabling adbwifi.");
         contains(dir, "p2p-toggle-gate.log", "WifiDebug: enabled wireless debugging");
 
+        contains(dir, "p2p-go-5ghz.log", "channelFrequency=5180, groupRole=GroupOwner");
+        contains(dir, "p2p-go-5ghz.log", "group ssid: DIRECT-KL-5G");
+        contains(dir, "p2p-go-5ghz.log", "inet 192.168.49.149/24");
+        contains(dir, "p2p-go-5ghz.log", "connected to 192.168.49.1:5555");
+        contains(dir, "p2p-go-5ghz.log", "2000\n5555\n0");
+        contains(dir, "p2p-go-5ghz.log", "STILL_OK_30S");
+
         System.out.println("ok: " + checks + " findings");
     }
 

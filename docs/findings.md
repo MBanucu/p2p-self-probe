@@ -54,10 +54,9 @@ problem that a different intent extra can solve.
   `Interface resource is not available`. `ap0` holds the only AP-capable
   interface, and the HAL does not offer AP + P2P.
 
-A P2P group and the hotspot cannot be up together. The 6 GHz default is a
-separate laptop-compatibility problem: forcing a 5 GHz group would need
-`WifiP2pConfig.Builder().setGroupOperatingFrequency(5180)` in the probe. That
-test is still open (issue #1).
+A P2P group and the hotspot cannot be up together. The 6 GHz default was a
+separate laptop-compatibility problem; forcing a 5 GHz group fixes it (see
+"P2P on 5 GHz" below).
 
 ## Why self-P2P is impossible
 
@@ -145,16 +144,37 @@ different: `5555` binds the wildcard address and works over the hotspot, a GO,
 rndis or any other IP path once it exists. The open problem stays the first
 listener.
 
-- The Android Wireless debugging **toggle** needs a real `TRANSPORT_WIFI`
-  client network. A hotspot or P2P GO does not provide one; the platform logs
-  `Not connected to any wireless network. Not enabling adbwifi.` and reverts
-  `adb_wifi_enabled` (measured, see `docs/hotspot.md`).
 - Legacy adb `5555` is different: `adbd` listens on the wildcard address, so it
-  works over the phone's hotspot once `service.adb.tcp.port=5555` is set. The
-  open problem is making that listener exist after a cold boot without root,
-  USB, or a temporary STA.
+  works over the phone's hotspot or a P2P group once
+  `service.adb.tcp.port=5555` is set. The open problem is making that listener
+  exist after a cold boot without root, USB, or a temporary STA.
 - Termux can run an adb client and keep an existing listener alive, but it
   cannot create the listener or write the property; see `docs/termux.md`.
+
+## P2P on 5 GHz: the transport works
+
+The transport does not care which interface carries it. On 2026-11-27 the group
+owner was forced to 5 GHz with `setGroupOperatingFrequency(5180)` plus an SSID
+and passphrase, and the laptop joined it as a plain WPA2 station:
+
+```text
+$ dumpsys wifip2p | grep "CURRENTLY OPEN"
+... channelFrequency=5180, groupRole=GroupOwner, numConnectedClients=1 ...
+$ ip -4 -o addr show p2p-p2p0-0     -> 192.168.49.1/24
+$ ip -4 -o addr show wlp110s0       -> 192.168.49.149/24   (DHCP from the phone)
+$ adb connect 192.168.49.1:5555     -> connected
+$ adb -s 192.168.49.1:5555 shell 'id -u; getprop service.adb.tcp.port; settings get global adb_wifi_enabled'
+2000
+5555
+0
+```
+
+A phone-hosted adb link with no AP, no hotspot and no cable is proven, and the
+toggle is not involved (`0` throughout). Limits: the group has to be kept alive
+(the probe holds it on a timer), the hotspot cannot be up at the same time, and
+a STA association in the same window did not survive (~3 min).
+
+Fixture: `tests/fixtures/p2p-go-5ghz.log`.
 
 ## Reproduce
 
