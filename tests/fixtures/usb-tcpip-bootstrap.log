@@ -1,0 +1,69 @@
+# One USB command creates legacy 5555 from a cold boot with no AP, no STA and
+# no hotspot. Measured 2026-11-27 on the XPLORE 2 (boot_completed 20:46:51).
+#
+# The Wi-Fi radio state is irrelevant: adbd writes service.adb.tcp.port
+# itself, so this bypasses the AdbDebuggingManager toggle gate entirely.
+
+# 1. After the cold boot, with Wi-Fi disabled and the laptop AP down:
+$ adb shell 'date; getprop service.adb.tcp.port; settings get global adb_wifi_enabled; cmd wifi status | head -1'
+Fri Nov 27 20:46:50 CET 2026
+(empty)
+0
+Wifi is disabled
+$ adb shell 'ip -4 -o addr show wlan0; ip -4 -o addr show ap0'
+(no output: no STA, no hotspot)
+$ adb shell 'cat /proc/net/tcp /proc/net/tcp6 | awk ...'
+5555_listeners=0
+
+# 2. The entire bootstrap:
+$ adb tcpip 5555
+restarting in TCP mode port: 5555
+
+# adbd restarts; the property is visible again in about a second.
+$ adb shell 'getprop service.adb.tcp.port'
+5555
+$ adb shell 'cat /proc/net/tcp /proc/net/tcp6 | awk ...'
+5555_listeners=1
+
+# The radio came up by itself in this first run; step 3 repeats the
+# measurement with it explicitly off, so the result does not depend on it.
+
+# 3. Re-measured with the radio explicitly off (no wlan0, no ap0):
+$ adb shell 'svc wifi disable'
+$ adb shell 'cmd wifi status | head -1; settings get global adb_wifi_enabled'
+Wifi is disabled
+0
+$ adb tcpip 5555
+restarting in TCP mode port: 5555
+property_visible_s=1.016
+$ adb shell 'getprop service.adb.tcp.port; ... listener count ...; cmd wifi status | head -1; settings get global adb_wifi_enabled'
+5555
+5555_listeners=1
+Wifi is disabled
+0
+
+# 4. The cable is now optional. Later in the same boot the phone hosted a
+#    5 GHz P2P group and adb rode it with the toggle still off:
+$ adb shell 'am start -n org.phonelink.p2pprobe/.MainActivity --ei freq 5180 --es ssid DIRECT-KL-5G --es psk <redacted> --ei hold 240000'
+createGroup: success
+group owner: true
+group interface: p2p-p2p0-0
+$ nmcli device wifi connect DIRECT-KL-5G password <redacted> ifname wlp110s0
+Device 'wlp110s0' successfully activated
+$ adb connect 192.168.49.1:5555
+connected to 192.168.49.1:5555
+$ adb -s 192.168.49.1:5555 shell 'echo P2P_OK; id -u; getprop service.adb.tcp.port; settings get global adb_wifi_enabled'
+P2P_OK
+2000
+5555
+0
+
+# Limits:
+# - the property is volatile: the next reboot clears it, so this command is a
+#   per-boot bootstrap, not persistence;
+# - the toggle is never involved (0 throughout), so this is legacy adbd, not
+#   Wireless debugging;
+# - the USB host is the adb client the user already has; no AP, router, second
+#   radio or extra device is needed;
+# - without any USB host, the bootstrap still needs a temporary STA (Keeper
+#   re-pins 5555 in ~17 s) or root.

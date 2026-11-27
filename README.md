@@ -54,13 +54,28 @@ The laptop-local AP keeps the phone in **client mode**, which is what the
 Wireless debugging toggle needs. A phone-hosted link (hotspot or P2P) is
 attractive because it would survive a laptop reboot and need no external AP.
 The question was whether the phone can provide both ends of that link. It
-cannot, but it does not need to: a temporary STA bootstraps `5555`, and the
-phone hotspot then carries adb with no AP.
+cannot, but it does not need to: one USB `adb tcpip 5555` or a temporary STA
+bootstraps `5555`, and the phone hotspot or a 5 GHz P2P group then carries adb
+with no AP.
 
-## Bootstrap 5555 (one temporary STA)
+## Bootstrap 5555 (one USB command or one temporary STA)
 
-The external AP is needed only until Keeper pins the port. Full detail and
-evidence: [`docs/short-bootstrap.md`](docs/short-bootstrap.md).
+The shortest path is one USB command — no AP, no hotspot, Wi-Fi can be off:
+
+```sh
+adb tcpip 5555
+adb shell 'for i in $(seq 1 20); do [ "$(getprop service.adb.tcp.port)" = 5555 ] && break; sleep 1; done'
+adb shell getprop service.adb.tcp.port   # 5555 within ~1 s
+# unplug; the phone can host the link (hotspot or 5 GHz P2P)
+```
+
+`adb tcpip` writes the property through adbd, so it bypasses the Wireless
+debugging toggle (which stays `0`). It is per boot, like every no-root route.
+The phone cannot bootstrap itself: its STA never sees its own SoftAP (measured;
+issue #2).
+
+Cable-free, the external AP is needed only until Keeper pins the port. Full
+detail and evidence: [`docs/short-bootstrap.md`](docs/short-bootstrap.md).
 
 ```sh
 # 1. Temporary STA; the phone auto-joins and Keeper sets adb_wifi_enabled=1.

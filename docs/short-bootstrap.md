@@ -9,6 +9,31 @@ that, and `5555` lasts until the next reboot.
 This works. The external AP is needed only until `5555` is listening; it does
 not have to stay connected.
 
+If a USB cable is acceptable, there is a shorter route that needs no AP at all.
+
+## The shortest bootstrap: one USB command
+
+`adb tcpip 5555` is the whole bootstrap. It does not use the Wireless debugging
+toggle, Keeper or a client network: the host asks adbd to restart with
+`service.adb.tcp.port=5555`, and adbd binds the wildcard address itself.
+
+Measured on 2026-11-27 after a cold boot with Wi-Fi **disabled**, no `wlan0`,
+no `ap0` and `5555_listeners=0`:
+
+```text
+$ adb tcpip 5555
+restarting in TCP mode port: 5555
+$ adb shell 'getprop service.adb.tcp.port; ... listener count ...'
+5555
+5555_listeners=1
+```
+
+The property was visible **1.0 s** after the command in a timed re-run with the
+radio explicitly off. The cable can then be unplugged: the phone can host the
+link over its hotspot or a 5 GHz P2P group with `adb_wifi_enabled=0`. The
+property is volatile, so this is a per-boot bootstrap, not persistence.
+Fixture: `tests/fixtures/usb-tcpip-bootstrap.log`.
+
 ## What ran
 
 1. The laptop hosted a temporary 5 GHz AP (`PhoneLink`, 5745 MHz) and the phone
@@ -126,10 +151,12 @@ Do not hardcode `10.31.180.89` or `192.168.49.1`.
   command (see above). Cold-boot automation therefore reduces to "get a STA
   up", not "run adb". Details: `docs/hotspot.md`,
   `tests/fixtures/cold-boot.log`.
-- **The bootstrap needs a real STA once.** USB does not satisfy the
-  `AdbDebuggingManager` gate. With USB attached and no STA,
-  `settings put global adb_wifi_enabled 1` still reads back `0`:
-  `Not connected to any wireless network. Not enabling adbwifi.`
+- **The toggle needs a real STA once; the legacy port does not.** With USB
+  attached and no STA, `settings put global adb_wifi_enabled 1` still reads back
+  `0` (`Not connected to any wireless network. Not enabling adbwifi.`). But
+  `adb tcpip 5555` does not go through that gate: it sets
+  `service.adb.tcp.port` through adbd, so one USB command is enough (above).
+  Without USB, the bootstrap still needs a temporary STA.
 - **Termux needs an existing listener.** It can connect to `127.0.0.1:5555` and
   re-send `tcpip:5555` once Keeper has pinned the port, but it cannot create the
   first listener from a cold boot. A closed port is refused; USB does not give
@@ -142,6 +169,20 @@ Do not hardcode `10.31.180.89` or `192.168.49.1`.
   passphrase and any pairing PIN. The fixtures redact them.
 
 ## Reproduce
+
+Two bootstraps work, one per boot. Both use only the laptop that is already the
+adb client.
+
+**A. USB — shortest, no AP:**
+
+```sh
+adb tcpip 5555
+adb shell 'for i in $(seq 1 20); do [ "$(getprop service.adb.tcp.port)" = 5555 ] && break; sleep 1; done'
+adb shell getprop service.adb.tcp.port   # 5555
+# unplug; host the link from the phone (hotspot or 5 GHz P2P)
+```
+
+**B. Temporary STA — cable-free, ~17 s:**
 
 Keep USB adb attached and keep a rollback AP profile ready. The laptop AP is
 only needed for step 1.
@@ -173,9 +214,11 @@ it is rebuilt about 17 s after the phone rejoins a trusted Wi-Fi network.
 
 ## What this changes
 
-- The one-time requirement is now explicit: a **temporary STA**, not a
-  permanent AP. After the pin, the phone hosts the link and the laptop is just
-  the adb client.
+- The one-time requirement is now explicit: either **one USB command**
+  (`adb tcpip 5555`, ~1 s) or a **temporary STA** (~17 s, cable-free), never a
+  permanent AP. After that the phone hosts the link and the laptop is just the
+  adb client. The phone cannot provide this first step alone: its STA never
+  sees its own SoftAP (measured in `docs/hotspot.md`).
 - Keeper is doing exactly the job it was designed for: setting the toggle and
   pinning `5555` over its own TLS key. A "Keeper Lite" that assumes a phone-hosted
   link is only needed for the cold boot, not for this step.

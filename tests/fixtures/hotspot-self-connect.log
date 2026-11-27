@@ -1,0 +1,49 @@
+# Self-connect test: can the phone's STA join the SoftAP it is hosting?
+# Measured 2026-11-27 20:57 on the XPLORE 2. Answer: no.
+# Hotspot "XPLORE 2" on ap0 (5 GHz, 5180 MHz), BSSID 2a:aa:b4:59:d3:a0.
+
+$ ip -4 -o addr show ap0
+43: ap0    inet 10.105.197.112/24 brd 10.105.197.255 scope global ap0
+$ dumpsys wifi | grep -A3 mCurrentSoftApConfiguration
+mCurrentSoftApConfiguration: ssid = "XPLORE 2"
+ bssid = 2a:aa:b4:59:d3:a0
+ Passphrase = <non-empty>
+ HiddenSsid = false
+
+# The phone never sees its own beacon: 0 hits for its own SSID or BSSID.
+$ cmd wifi list-scan-results | grep -c "XPLORE 2"
+0
+$ cmd wifi list-scan-results | grep -c "2a:aa:b4:59:d3:a0"
+0
+
+# Force a client connect to its own BSSID anyway. This is shell-legal:
+# WifiServiceImpl.connect() has no self-SSID/self-BSSID check.
+$ cmd wifi connect-network "XPLORE 2" wpa2 <redacted> -b 2a:aa:b4:59:d3:a0
+
+# WifiClientModeImpl event log (dumpsys wifi):
+rec[10] 20:57:13.634 CMD_CONNECT_NETWORK ... nid=5 cuid=2000 suid=2000 "XPLORE 2"WPA_PSK
+rec[11] 20:57:13.651 CMD_START_CONNECT ... targetBssid=2a:aa:b4:59:d3:a0
+rec[14] 20:57:13.656 SUPPLICANT_STATE_CHANGE_EVENT ... nid: 5 ... state: SCANNING
+rec[18] 20:57:20.443 NETWORK_NOT_FOUND_EVENT ... ssid="XPLORE 2"
+rec[24] 20:57:32.594 NETWORK_NOT_FOUND_EVENT ... ssid="XPLORE 2"
+
+# 24 s later: still scanning, never ASSOCIATED, no wlan0, toggle still 0.
+$ cmd wifi status | head -4
+Wifi is enabled
+Wifi scanning is always available
+==== Primary ClientModeManager instance ====
+Wifi is not connected
+$ settings get global adb_wifi_enabled
+0
+$ ip -4 -o addr show wlan0
+(no output)
+$ getprop service.adb.tcp.port
+5555
+
+# 5555 was already there from the USB tcpip bootstrap. The point of this run is
+# the toggle: it stayed 0, so on a cold boot this path would never let Keeper
+# pin the port. The radio cannot receive the beacon it is transmitting.
+
+# Rollback:
+$ cmd wifi forget-network 5
+Forget successful

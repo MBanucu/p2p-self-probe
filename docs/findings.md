@@ -176,6 +176,38 @@ a STA association in the same window did not survive (~3 min).
 
 Fixture: `tests/fixtures/p2p-go-5ghz.log`.
 
+## How 5555 is created (and why the phone cannot do it alone)
+
+The transport is easy; the bootstrap is the constrained step. Three mechanisms
+were measured:
+
+| Bootstrap | Needs | Time | Survives reboot |
+|---|---|---|---|
+| `adb tcpip 5555` over USB | a USB host, one command | ~1 s | no |
+| Temporary STA + Keeper | an AP the phone can join (laptop AP or router) | ~17 s | no |
+| Root (`persist.adb.tcp.port`) | root | instant | yes |
+
+Phone-only is the fourth row: it does not exist. The Wireless debugging toggle
+needs a client-mode `WifiInfo` (Net ID != -1, BSSID set), and the phone cannot
+associate to its own SoftAP. Measured 2026-11-27: with the hotspot up on
+`ap0` (`10.105.197.112/24`, BSSID `2a:aa:b4:59:d3:a0`), the phone's own scan
+cache had 0 hits for its SSID and 0 for its BSSID;
+`cmd wifi connect-network "XPLORE 2" wpa2 <redacted> -b 2a:aa:b4:59:d3:a0`
+was accepted, went to `CMD_START_CONNECT targetBssid=2a:aa:b4:59:d3:a0`, then
+stayed `SCANNING` and logged `NETWORK_NOT_FOUND_EVENT` twice, never
+`ASSOCIATED`. `adb_wifi_enabled` stayed `0`. Fixture:
+`tests/fixtures/hotspot-self-connect.log`; issue #2 is closed as ruled out.
+
+The USB route is different in kind: `adb tcpip 5555` does not touch the toggle.
+adbd restarts with `service.adb.tcp.port=5555` and binds the wildcard address,
+so it works with Wi-Fi off, no `wlan0`, no `ap0` and no Keeper. Measured after a
+cold boot (port empty, `5555_listeners=0`) and re-checked with the radio
+explicitly off: property visible in **1.0 s**, one listener. Fixture:
+`tests/fixtures/usb-tcpip-bootstrap.log`.
+
+Both routes are per boot: a reboot clears the property. The least-bad choice is
+the USB command if a cable is acceptable, otherwise the temporary STA.
+
 ## Reproduce
 
 The probe needs the real MAC because the framework masks its own. It removes
