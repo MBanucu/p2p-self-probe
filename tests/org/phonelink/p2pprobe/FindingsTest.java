@@ -53,6 +53,11 @@ public final class FindingsTest {
         contains(dir, "cold-boot-5555-timeline.log", "Network disconnected. Disabling adbwifi.");
         contains(dir, "cold-boot-5555-timeline.log", "remembered SSID: PhoneLink");
 
+        contains(dir, "p2p-toggle-gate.log", "channelFrequency=6055, groupRole=GroupOwner");
+        contains(dir, "p2p-toggle-gate.log", "inet 192.168.49.1/24");
+        contains(dir, "p2p-toggle-gate.log", "Not connected to any wireless network. Not enabling adbwifi.");
+        contains(dir, "p2p-toggle-gate.log", "WifiDebug: enabled wireless debugging");
+
         System.out.println("ok: " + checks + " findings");
     }
 

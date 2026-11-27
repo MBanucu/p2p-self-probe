@@ -12,9 +12,15 @@ for `adb connect` — P2P group, SoftAP, rndis, Ethernet. The phone does not nee
 a Wi-Fi **client** interface for the transport, and `mdnsd` advertises the TLS
 port per interface.
 
-The Android Wireless debugging **toggle** is different: it requires a
-`TRANSPORT_WIFI` network, so P2P/SoftAP/NAN cannot turn it on. Separate the two
-questions when comparing transports.
+The Android Wireless debugging **toggle** is different: `AdbDebuggingManager`
+reads `WifiManager.getConnectionInfo()` — the **client-mode** `WifiInfo` — and
+needs `getNetworkId() != -1` plus a BSSID. Only an association to an external AP
+provides that. Measured on 2026-11-27: with only a P2P GO up (`p2p-p2p0-0`,
+`192.168.49.1/24`, 6055 MHz) the write was refused
+(`Not connected to any wireless network. Not enabling adbwifi.`), and Keeper's
+own write was reverted 2 ms later. The same holds for the hotspot, rndis, PAN,
+NAN and VPN. So: every row below can carry `5555`, none of them can switch the
+toggle on. Separate the two questions when comparing transports.
 
 ## Ranked options
 

@@ -45,6 +45,7 @@ hardware".
 | 10 | Short bootstrap works: a temporary STA lets Keeper pin `5555`; the STA can then go away. | `docs/short-bootstrap.md` | **Proven** |
 | 11 | Cold boot loses `5555`, the toggle and the hotspot. Nothing recreates `5555` without a trusted STA; once one appears, Keeper re-arms the toggle and re-pins `5555` in ~17 s with no host command. | `tests/fixtures/cold-boot.log`, `tests/fixtures/cold-boot-5555-timeline.log` | **Narrowed (needs a STA)** |
 | 15 | Keeper is the writer of `adb_wifi_enabled`: forcing it to `0` while a STA is up is undone in under 1 s. | `tests/fixtures/cold-boot-5555-timeline.log` | **Proven** |
+| 16 | A P2P GO does not satisfy the toggle: the write is refused and Keeper's own write is reverted 2 ms later. STA + GO coexistence is brief and unstable. | `tests/fixtures/p2p-toggle-gate.log` | **Proven** |
 | 12 | P2P GO cannot coexist with the hotspot; with the hotspot off the default GO is 6 GHz, invisible to the 8265. | runs 4/5; `tests/fixtures/p2p-*.log` | **Blocked** |
 | 13 | Termux can maintain an existing listener but cannot create the first one; USB is not a substitute. | `docs/termux.md`, `docs/usb-ideas.md` | **Ruled out** |
 | 14 | Hotspot and rndis subnets are randomized per boot; read `ap0`/`rndis0` each time. | `tests/fixtures/hotspot-subnet.log` | **Proven** |

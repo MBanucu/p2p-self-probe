@@ -1,0 +1,53 @@
+# P2P group owner only: does it satisfy the Wireless debugging gate? 2026-11-27.
+# Curated transcript. The STA was removed first so nothing else could satisfy the
+# gate; the phone hotspot was off. The probe held a group owner for 240 s.
+
+# 1. The GO is up with an address, a channel and a role, but there is no STA.
+$ nmcli connection down phonelink          # laptop AP off: no STA, no hotspot
+$ adb shell settings get global adb_wifi_enabled
+0
+$ adb shell am start -n org.phonelink.p2pprobe/.MainActivity --ei hold 240000
+$ adb shell dumpsys wifip2p | grep "CURRENTLY OPEN"
+netId=0, startTime=11-27 20:12:29.554, channelFrequency=6055, groupRole=GroupOwner, numConnectedClients=0, numCumulativeClients=0, sessionDurationMillis=0, idleDurationMillis=0 CURRENTLY OPEN EVENT
+$ adb shell ip -4 -o addr show p2p-p2p0-0
+43: p2p-p2p0-0    inet 192.168.49.1/24 brd 192.168.49.255 scope global p2p-p2p0-0
+$ adb shell cmd wifi status | head -1
+Wifi is enabled                            # no "connected to", no SSID/BSSID
+
+# 2. Writing the toggle is refused: with no client association `WifiInfo`
+#    has Net ID -1, so AdbDebuggingManager's getCurrentWifiApInfo() returns null.
+$ adb shell settings put global adb_wifi_enabled 1
+$ adb shell settings get global adb_wifi_enabled
+0
+11-27 20:12:30.549  1596  1615 I AdbDebuggingManager: Not connected to any wireless network. Not enabling adbwifi.
+
+# 3. Keeper tries as well and loses; the platform reverts its write at once.
+11-27 20:12:31.059  2742  2742 I WifiDebug: enabled wireless debugging
+11-27 20:12:31.061  1596  1615 I AdbDebuggingManager: Not connected to any wireless network. Not enabling adbwifi.
+
+# 4. 5555 is unaffected: it was pinned earlier in the boot and stays on the
+#    wildcard address, with the toggle at 0 and only a GO for a link.
+$ adb shell getprop service.adb.tcp.port
+5555
+
+# 5. The GO and a STA did coexist long enough to satisfy the gate, and the
+#    toggle flipped to 1 (satisfied by the STA, not the GO). The coexistence
+#    was short-lived: at 20:16:29 wlan0 had no address, the toggle was 0 again,
+#    and the laptop AP had to be restarted.
+$ nmcli connection up phonelink
+$ adb shell settings get global adb_wifi_enabled
+1
+$ adb shell ip -4 -o addr show wlan0
+36: wlan0    inet 192.168.77.232/24 brd 192.168.77.255 scope global dynamic wlan0
+$ adb shell dumpsys wifip2p | grep -m1 "CURRENTLY OPEN"
+netId=0, ... channelFrequency=6055, groupRole=GroupOwner, numConnectedClients=0 ... CURRENTLY OPEN EVENT
+$ adb shell ip -4 -o addr show wlan0        # 20:16:29, after the 240 s hold
+(none)
+$ adb shell settings get global adb_wifi_enabled
+0
+$ adb shell getprop service.adb.tcp.port
+5555
+
+# Summary: the toggle is STA-only. A GO with an address, a role and DHCP is not
+# enough, and neither is Keeper writing the setting. STA + GO coexistence is
+# not a stable link on this phone.
