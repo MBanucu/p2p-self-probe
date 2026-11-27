@@ -37,7 +37,7 @@ hardware".
 | 2 | Self-P2P is impossible: 0 peers, `connect(self)` and `connect(own group)` fail. | Run 3 | **Ruled out** |
 | 3 | `createGroup()` works as GO with 0 clients; the group is `DIRECT-KL-XPLORE 2`. | Run 3 | **Proven** |
 | 4 | A P2P GO coexists with a **client** STA link for a short run. | Run 3: `client true/true/true`; laptop station 1961 -> 1990 s | **Proven (short)** |
-| 5 | Same-radio hotspot self-connect is a PHY limit; AP and STA share one radio. | `docs/hotspot.md`; issue #2 | **Ruled out by analysis** |
+| 5 | Same-radio hotspot self-connect is a PHY limit; AP and STA share one radio. | `tests/fixtures/hotspot-self-connect.log`; issue #2 | **Ruled out (measured)** |
 | 6 | Phone hotspot works: `ap0` is randomized per boot (`10.31.180.89`, then `10.231.103.217`), laptop joins, `adb <ap0>:5555` OK. | live 2026-11-27; `tests/fixtures/hotspot-subnet.log` | **Proven** |
 | 7 | Writing `adb_wifi_enabled=1` on hotspot-only or USB-only is reverted by the platform. | `AdbDebuggingManager`; `tests/fixtures/usb-self-adb.log` | **Proven** |
 | 8 | Shell cannot set `service.adb.tcp.port` or `persist.adb.tcp.port`. | `Failed to set property` as uid 2000 | **Proven** |
@@ -47,6 +47,8 @@ hardware".
 | 15 | Keeper is the writer of `adb_wifi_enabled`: forcing it to `0` while a STA is up is undone in under 1 s. | `tests/fixtures/cold-boot-5555-timeline.log` | **Proven** |
 | 16 | A P2P GO does not satisfy the toggle: the write is refused and Keeper's own write is reverted 2 ms later. STA + GO coexistence is brief and unstable. | `tests/fixtures/p2p-toggle-gate.log` | **Proven** |
 | 17 | Forced 5 GHz GO + laptop station works end to end: `DIRECT-KL-5G` on 5180 MHz, DHCP `192.168.49.149`, `adb connect 192.168.49.1:5555` with the toggle off, no AP and no cable. | `tests/fixtures/p2p-go-5ghz.log` | **Proven** |
+| 18 | One USB `adb tcpip 5555` creates the legacy listener with Wi-Fi off, no STA and no AP; the property is visible in ~1.0 s. | `tests/fixtures/usb-tcpip-bootstrap.log` | **Proven** |
+| 19 | The phone cannot join its own SoftAP: 0 scan hits for its own SSID/BSSID, `NETWORK_NOT_FOUND_EVENT`, never associated, toggle stays `0`. | `tests/fixtures/hotspot-self-connect.log` | **Ruled out (measured)** |
 | 12 | P2P GO cannot coexist with the hotspot; the default GO is 6 GHz, but a forced 5 GHz group is visible to the 8265. | runs 4/5; `tests/fixtures/p2p-*.log` | **Partly solved** |
 | 13 | Termux can maintain an existing listener but cannot create the first one; USB is not a substitute. | `docs/termux.md`, `docs/usb-ideas.md` | **Ruled out** |
 | 14 | Hotspot and rndis subnets are randomized per boot; read `ap0`/`rndis0` each time. | `tests/fixtures/hotspot-subnet.log` | **Proven** |
@@ -77,15 +79,16 @@ joined and got `192.168.49.149`, and `adb connect 192.168.49.1:5555` worked with
 the toggle off. Remaining work: keep the group alive with a foreground service,
 and check screen-off and laptop-reboot behavior.
 
-### C. Hotspot + short bootstrap — proven, one temporary STA per boot
+### C. Hotspot + short bootstrap — proven, one USB command or one temporary STA per boot
 
 **Issues:** [#3](https://github.com/MBanucu/p2p-self-probe/issues/3),
 [#12](https://github.com/MBanucu/p2p-self-probe/issues/12),
 [#19](https://github.com/MBanucu/p2p-self-probe/issues/19)
 
 The phone-hosted link is proven: `adb <ap0>:5555` works with
-`adb_wifi_enabled=0`. To create `5555`, join a temporary STA once, let Keeper
-set the toggle and pin the port, then remove the AP; the legacy listener
+`adb_wifi_enabled=0`. To create `5555`, either run one USB command
+(`adb tcpip 5555`, ~1 s, no AP) or join a temporary STA once, let Keeper set
+the toggle and pin the port (~17 s), then remove the AP; the legacy listener
 survives. This is [`docs/short-bootstrap.md`](docs/short-bootstrap.md). The
 remaining gap is the cold boot: `5555`, the toggle and the hotspot are all gone,
 so the bootstrap must be repeated. Read `ap0` every boot; the subnet is
@@ -131,14 +134,15 @@ denied. The UDC/configfs are root-only, `cmd usb` has no shell implementation,
 and one UDC/port cannot be host and device. Even a faked attach would leave
 adbd in USB mode with no TCP listener. See `docs/usb-ideas.md`.
 
-### G. Hotspot self-connect falsification
+### G. Hotspot self-connect falsification — ruled out
 
 **Issue:** [#2](https://github.com/MBanucu/p2p-self-probe/issues/2)
 
-The user's original hotspot-as-self idea. Analysis says impossible (one radio,
-half-duplex); the issue is the cheap, reversible test that either confirms it or
-overturns the physics argument. Low priority now that the platform gate (#11)
-also blocks the toggle.
+The user's original hotspot-as-self idea. Analysis said impossible (one radio,
+half-duplex), and the measurement agrees: with the hotspot up, the phone's own
+SSID/BSSID had 0 scan hits, a connect targeted at its own BSSID stayed
+`SCANNING` and logged `NETWORK_NOT_FOUND_EVENT`, never `ASSOCIATED`; the toggle
+stayed `0`. Fixture: `tests/fixtures/hotspot-self-connect.log`. Issue closed.
 
 ### H. Probe, tests and documentation
 
@@ -155,17 +159,21 @@ Keep the P2P evidence reproducible: real-MAC override, hold, STA detection,
   #6, #7 and #16 are closed for that reason.
 - **Wireless debugging toggle requires a real STA.** Hotspot/P2P GO/USB cannot
   turn it on; `adb_wifi_enabled` is reverted by the platform.
-- **A temporary STA is an acceptable bootstrap.** It is needed only until Keeper
-  pins `5555`; after that the hotspot carries adb and the AP can go away. This is
+- **One USB command or a temporary STA is an acceptable bootstrap.** A USB
+  `adb tcpip 5555` creates the port in ~1 s with no AP; a temporary STA lets
+  Keeper pin it in ~17 s. Both are needed only until `5555` exists; after that
+  the hotspot or a 5 GHz P2P group carries adb and the AP can go away. This is
   not full automation: a cold boot needs the bootstrap again.
 - **Legacy 5555 is the usable transport.** It works over the phone hotspot,
   survives losing the STA and a hotspot toggle, but not a reboot; shell cannot
   set the property.
 - **Termux maintains; it does not bootstrap.** It needs an existing TCP
   listener; it cannot create one after a cold boot, and USB does not give it one.
-- **USB is not a shortcut.** USB debugging being enabled does not satisfy the
-  toggle gate, and Termux cannot use the phone's own USB endpoint. Faking the
-  attach is root-only and would not create a TCP listener anyway.
+- **USB is not a shortcut to the toggle, but it is a bootstrap.** USB debugging
+  does not satisfy the toggle gate, and Termux cannot use the phone's own USB
+  endpoint. `adb tcpip 5555` is different: it writes `service.adb.tcp.port`
+  through adbd and needs neither the toggle nor a STA. Faking the attach is
+  root-only and would not create a TCP listener anyway.
 - **Read the addresses.** The hotspot and rndis subnets are randomized per boot;
   `10.31.180.89` and `192.168.49.1` are examples, not constants.
 - **The hotspot + short bootstrap is the working no-external-AP result.**
@@ -173,15 +181,17 @@ Keep the P2P evidence reproducible: real-MAC override, hold, STA detection,
 
 ## Order of work
 
-1. **#3/#12**: cold-boot the hotspot with USB attached, measure the missing
-   listener and hotspot, and automate or explicitly time the bootstrap.
+1. **#3/#12**: done — cold boot measured; the two working bootstraps are one
+   USB command (`adb tcpip 5555`, ~1 s) and a temporary STA (~17 s). Automatic
+   hotspot-only remains impossible without root or a host.
 2. **#14/#15**: use Termux only as a watchdog after a pin; do not expect it to
    create the first listener.
 3. **#1**: done — a forced 5 GHz GO is reachable from the laptop and adb runs
    over it; the follow-up is a keep-alive service for the group.
 4. **#11**: close the "fake Wi-Fi" question with the USB evidence; document the
    toggle limit in Keeper.
-5. **#2**: run the reversible hotspot self-connect falsification (low priority).
+5. **#2**: done — the reversible self-connect test never associates; issue
+   closed.
 6. **#8/#9/#10**: keep docs, fixtures and tests current.
 
 ## Non-goals

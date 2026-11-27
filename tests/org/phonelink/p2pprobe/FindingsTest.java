@@ -65,6 +65,19 @@ public final class FindingsTest {
         contains(dir, "p2p-go-5ghz.log", "2000\n5555\n0");
         contains(dir, "p2p-go-5ghz.log", "STILL_OK_30S");
 
+        contains(dir, "usb-tcpip-bootstrap.log", "restarting in TCP mode port: 5555");
+        contains(dir, "usb-tcpip-bootstrap.log", "5555_listeners=0");
+        contains(dir, "usb-tcpip-bootstrap.log", "5555_listeners=1");
+        contains(dir, "usb-tcpip-bootstrap.log", "property_visible_s=1.016");
+        contains(dir, "usb-tcpip-bootstrap.log", "Wifi is disabled");
+        contains(dir, "usb-tcpip-bootstrap.log", "2000\n5555\n0");
+
+        contains(dir, "hotspot-self-connect.log", "bssid = 2a:aa:b4:59:d3:a0");
+        contains(dir, "hotspot-self-connect.log", "targetBssid=2a:aa:b4:59:d3:a0");
+        contains(dir, "hotspot-self-connect.log", "NETWORK_NOT_FOUND_EVENT");
+        contains(dir, "hotspot-self-connect.log", "Wifi is not connected");
+        contains(dir, "hotspot-self-connect.log", "cmd wifi forget-network 5");
+
         System.out.println("ok: " + checks + " findings");
     }
 

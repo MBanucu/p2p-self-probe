@@ -127,29 +127,40 @@ WifiDebug: pin.state listening on 5555
 This is the workflow to use when a short external AP is acceptable. The full
 sequence, timings and boundaries are in
 [`docs/short-bootstrap.md`](short-bootstrap.md); the transcript is
-`tests/fixtures/short-bootstrap.log`. USB does **not** substitute for the STA:
-with USB attached and no client link the same setting still reverts (see
-`docs/usb-ideas.md`).
+`tests/fixtures/short-bootstrap.log`. USB does **not** substitute for the STA
+for the toggle: with USB attached and no client link the setting still reverts
+(see `docs/usb-ideas.md`). USB does have its own shortcut, though:
+`adb tcpip 5555` writes `service.adb.tcp.port` through adbd, bypassing the
+toggle, and creates the listener in about a second
+(`tests/fixtures/usb-tcpip-bootstrap.log`).
 
-## Safe falsification of the self-connect idea (issue #2)
+## Measured: the phone cannot join its own hotspot (issue #2)
 
-Keep USB adb attached and the rollback ready. This changes two settings and is
-reversible.
+The falsification was run on 2026-11-27 with the hotspot up (`ap0`
+`10.105.197.112/24`, 5180 MHz, BSSID `2a:aa:b4:59:d3:a0`). The result matches
+the PHY argument:
 
-1. Enable the hotspot (2.4 GHz is a different band from the current link).
-2. Record `cmd wifi status`, `dumpsys wifi`, `ip -o link`, and
-   `cmd wifi list-scan-results`.
-3. Try joining the phone's own SSID:
-   `cmd wifi connect-network "<ssid>" wpa2 "<pass>" -d -b <own-bssid>`
-   (`-d` disables autojoin so the attempt is explicit; pin the BSSID from the
-   SoftAP config).
-4. Watch `dumpsys wifi` and logcat for `CMD_START_CONNECT`, `ASSOCIATED`,
-   `NETWORK_CONNECTION_FAILURE`. Expect retries and no association.
-5. Roll back: `cmd wifi forget-network <id>` if a profile was added, then
-   rejoin the previous network and run `phone-doctor`.
+```text
+$ cmd wifi list-scan-results | grep -c "XPLORE 2"          -> 0
+$ cmd wifi list-scan-results | grep -c "2a:aa:b4:59:d3:a0" -> 0
+$ cmd wifi connect-network "XPLORE 2" wpa2 <redacted> -b 2a:aa:b4:59:d3:a0
+rec[10] CMD_CONNECT_NETWORK ... nid=5 "XPLORE 2"WPA_PSK
+rec[11] CMD_START_CONNECT ... targetBssid=2a:aa:b4:59:d3:a0
+rec[14] SUPPLICANT_STATE_CHANGE_EVENT ... nid: 5 ... state: SCANNING
+rec[18] NETWORK_NOT_FOUND_EVENT ... ssid="XPLORE 2"
+rec[24] NETWORK_NOT_FOUND_EVENT ... ssid="XPLORE 2"
+```
 
-If it ever associates and gets an IP, the physics argument is wrong; record the
-interface, IP and whether `adb connect` works. Otherwise close #2 as ruled out.
+The connect is accepted and even targets the phone's own BSSID, but the STA
+never sees the beacon: 24 s later it is still `SCANNING`, `wlan0` does not
+exist, and `adb_wifi_enabled` stays `0`. Rollback was
+`cmd wifi forget-network 5`. Fixture:
+`tests/fixtures/hotspot-self-connect.log`.
+
+This closes the last phone-only bootstrap idea. The toggle needs a client
+association; the phone's own SoftAP cannot provide one; and shell cannot set
+`service.adb.tcp.port` directly. A cold boot therefore needs a USB host, a
+temporary STA, or root.
 
 ## Cold-boot conclusion (no root)
 
@@ -157,10 +168,11 @@ The hotspot link and the short bootstrap are proven. A cold boot still loses
 everything: `service.adb.tcp.port` is empty, no `5555` listener exists,
 `adb_wifi_enabled` is `0`, the hotspot is off, and Termux is not running.
 Without a temporary STA, USB host or root, there is no way to restore `5555` or
-turn on Wireless debugging from the hotspot alone. Keeper is not idle after the
-reboot, it is gated: four minutes of samples produced nothing, and when a
-trusted STA appeared the toggle and `5555` were back in ~17 s with no host
-command (`tests/fixtures/cold-boot-5555-timeline.log`). Getting a STA up without
-an AP remains the open problem. See `ROADMAP.md`,
-`docs/short-bootstrap.md` and issues #3, #12, #14, #15. Do not call a
-one-pin-per-boot workflow automatic.
+turn on Wireless debugging from the hotspot alone. The least-bad bootstrap is
+one USB command (`adb tcpip 5555`, ~1 s, no AP needed); cable-free, a temporary
+STA lets Keeper rebuild the port in ~17 s. Keeper is not idle after the reboot,
+it is gated: four minutes of samples produced nothing, and when a trusted STA
+appeared the toggle and `5555` were back in ~17 s with no host command
+(`tests/fixtures/cold-boot-5555-timeline.log`). Getting a STA up without an AP
+remains the open problem. See `ROADMAP.md`, `docs/short-bootstrap.md` and
+issues #3, #12, #14, #15. Do not call a one-pin-per-boot workflow automatic.
